@@ -234,16 +234,17 @@ riscv32-esp-elf-nm --size-sort -S -td .pio/build/esp32p4/firmware.elf | tail   #
 | LVGL heap (`LV_MEM_SIZE`) | 512 KB | **PSRAM** via `LV_MEM_POOL_ALLOC` |
 | LVGL draw buffers (2 × 480×800×2) | 1.5 MB | PSRAM |
 | `s_students` (600 × `student_t`) | 55,200 B | internal `.dram1.bss` |
-| `s_classes` (12 × `class_rec_t`) | 51,216 B | internal `.dram1.bss` |
-| `attendance_store` present + tap-in sets | 10,400 B | internal `.dram0.bss` |
+| `s_classes` (12 × `class_rec_t`) | 62,016 B | internal `.dram1.bss` |
+| `attendance_store` present + tap-in sets | 13,000 B | internal `.dram0.bss` |
 | everything else static | ~46 KB | internal `.dram0.bss` + `.data` |
-| **total static internal** | **163,736 B (160 KB)** | `.dram0.data` 13,812 + `.dram0.bss` 59,948 + `.dram1.bss` 89,976 |
+| **total static internal** | **177,976 B (174 KB)** | `.dram0.data` 13,876 + `.dram0.bss` 71,180 + `.dram1.bss` 92,920 |
 | task stacks (loopTask 16 K, face_detect 16 K, fileserv 8 K, …) | ~68 KB | internal |
 | WiFi + ESP-Hosted, once started | tens of KB | internal, **never freed** |
 | face-detection task + loaded model, once the camera has been opened | 16 KB stack + model | internal, **never freed** (`face_detection_stop()` pauses, it does not tear down) |
 
-Figures above are from the v0.2.0 build; the two commands are there so they can
-be re-taken rather than trusted.
+Figures above were re-taken after `ROSTER_MAX_CLASS_STUDENTS` went to 250 and the
+roster's authored-avatar index (76 B) was added; the two commands are there so
+they can be re-taken rather than trusted.
 
 Two rules that follow from this table: **prefer a transient heap allocation over
 a static buffer** for anything only some screens or a debug action need (`malloc`

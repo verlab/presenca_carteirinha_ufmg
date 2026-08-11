@@ -26,14 +26,14 @@ other docs link here rather than restating them.
 
 | Suite | Cases | Covers |
 |---|--:|---|
-| `native/test_roster` | 34 | `students.json` / `class.json` validation and the exact on-screen error messages; enroll; clear-uids; card-id fingerprinting |
+| `native/test_roster` | 40 | `students.json` / `class.json` validation and the exact on-screen error messages; enroll; clear-uids; card-id fingerprinting; authored-avatar index |
 | `native/test_auth_config` | 34 | `config.json` parsing, UID→teacher lookup, password write + length floor, statuses, blank-card bootstrap, credential conversion + idempotency |
 | `native/test_sd_tree` | 19 | recursive delete, in-place rename, whole-card wipe sparing `config.json`, wipe progress |
 | `native/test_attendance` | 26 | session JSONL fold, date listing, timed (arrival + confirm) taps, write-failure reporting, wipe progress |
 | `native/test_ustar` | 14 | tar reading and the import path whitelist |
 | `native/test_atomic_file` | 12 | crash-safe file replacement: recovery from an interrupted write, full-card failure leaves the original |
 | `native/test_crypto` | 19 | SHA-256 / HMAC-SHA256 against FIPS 180-2 + RFC 4231 vectors; keyed UID and password fingerprints |
-| `native/test_core` | 13 | `uid_normalize`, login session, battery voltage→percent curve, charging threshold |
+| `native/test_core` | 14 | `uid_normalize`, login session, battery voltage→percent curve, charging threshold |
 | `native/test_photo_fit` | 11 | aspect-preserving avatar scale/size arithmetic |
 | `native/test_card_gate` | 16 | RFID tap decisions: confirm-before-accept, multi-card detection |
 | `native/test_class_stats` | 9 | turma breakdown shared by the class and stats screens |
@@ -68,6 +68,9 @@ headers at compile time — production sources are compiled **unmodified**:
   (`mock_freertos.cpp`), so service background tasks genuinely run as
   threads. `mock_freertos_set_delay_scale(n)` stretches `vTaskDelay`, which
   suites use to park the services' retry loops during a test run.
+- **`esp_timer`** — `esp_timer_get_time()` reads the host monotonic clock. It
+  exists only so code that logs elapsed times still compiles here; no test
+  asserts on a duration.
 
 ## Conventions / gotchas
 

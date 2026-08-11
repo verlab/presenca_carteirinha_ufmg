@@ -735,6 +735,112 @@ static void test_blank_teacher_entries_are_skipped(void) {
     TEST_ASSERT_EQUAL_STRING("real@x.edu", c->teacher_emails[0]);
 }
 
+// --- authored-avatar index ---------------------------------------------------
+//
+// The class screens ask "how many of these students have a photo?" on every view
+// build. That used to walk /students/photos - one flat directory holding EVERY
+// student's avatar - each time, which is what made the roll call take seconds to
+// open. The answer now comes from a bitset built once per load.
+
+// STUDENTS_JSON's three students; CS101-M1 holds the first two.
+static void setup_avatars(void) {
+    mocksd_reset();
+    mocksd_add_file("/students/students.json", STUDENTS_JSON);
+    mocksd_add_file("/classes/CS101-M1/class.json", CLASS_CS101);
+    mocksd_add_file("/students/photos/2023-0142.jpg", "jpegbytes");  // in the class
+    mocksd_add_file("/students/photos/2024-0021.jpg", "jpegbytes");  // registry, NOT in the class
+    roster_service_start();
+    TEST_ASSERT_EQUAL(ROSTER_OK, roster_get_status());
+}
+
+static void test_avatar_index_counts_only_this_class(void) {
+    setup_avatars();
+    // 2 of the class's 2 students exist in the photo dir, but only one of them
+    // is enrolled here - the whole reason the count can't just be "files on the
+    // card". 2023-0187 has no avatar.
+    TEST_ASSERT_EQUAL_INT(1, roster_class_photo_count(roster_class_at(0)));
+    TEST_ASSERT_TRUE(roster_student_has_photo(find_idx("2023-0142")));
+    TEST_ASSERT_FALSE(roster_student_has_photo(find_idx("2023-0187")));
+    TEST_ASSERT_TRUE(roster_student_has_photo(find_idx("2024-0021")));  // indexed, just not here
+}
+
+static void test_avatar_index_ignores_non_avatars(void) {
+    mocksd_reset();
+    mocksd_add_file("/students/students.json", STUDENTS_JSON);
+    mocksd_add_file("/classes/CS101-M1/class.json", CLASS_CS101);
+    mocksd_add_file("/students/photos/2023-0142.JPG", "jpegbytes");   // extension is case-insensitive
+    mocksd_add_file("/students/photos/2023-0187.png", "notajpeg");    // wrong extension
+    mocksd_add_file("/students/photos/2023-0187", "noextension");     // no extension
+    mocksd_add_file("/students/photos/9999-0000.jpg", "orphan");      // matches no student
+    mocksd_add_file("/students/photos/.jpg", "emptystem");            // empty stem
+    mocksd_add_dir("/students/photos/subdir");
+    roster_service_start();
+    TEST_ASSERT_EQUAL(ROSTER_OK, roster_get_status());
+
+    TEST_ASSERT_EQUAL_INT(1, roster_class_photo_count(roster_class_at(0)));
+    TEST_ASSERT_TRUE(roster_student_has_photo(find_idx("2023-0142")));
+    TEST_ASSERT_FALSE(roster_student_has_photo(find_idx("2023-0187")));
+}
+
+static void test_avatar_index_without_photo_dir(void) {
+    setup_valid();  // no /students/photos at all
+    TEST_ASSERT_EQUAL_INT(0, roster_class_photo_count(roster_class_at(0)));
+    TEST_ASSERT_FALSE(roster_student_has_photo(find_idx("2023-0142")));
+    // Out-of-range and NULL are answers, not crashes: the class screens call
+    // these while building a view.
+    TEST_ASSERT_FALSE(roster_student_has_photo(-1));
+    TEST_ASSERT_FALSE(roster_student_has_photo(ROSTER_MAX_STUDENTS));
+    TEST_ASSERT_EQUAL_INT(0, roster_class_photo_count(nullptr));
+}
+
+// The index is derived state, so a reload is the only thing that refreshes it -
+// which is exactly what the import, the admin action and the web-edit re-sync
+// all do.
+static void test_avatar_index_refreshes_on_reload(void) {
+    setup_valid();
+    TEST_ASSERT_EQUAL_INT(0, roster_class_photo_count(roster_class_at(0)));
+
+    mocksd_add_file("/students/photos/2023-0187.jpg", "jpegbytes");
+    roster_service_reload();
+    TEST_ASSERT_EQUAL(ROSTER_OK, roster_get_status());
+    TEST_ASSERT_EQUAL_INT(1, roster_class_photo_count(roster_class_at(0)));
+    TEST_ASSERT_TRUE(roster_student_has_photo(find_idx("2023-0187")));
+}
+
+// A load that fails drops the index instead of leaving the previous card's bits
+// behind. (It also skips the directory walk, which matters because roster_task()
+// retries every few seconds until the card is fixed.)
+static void test_avatar_index_cleared_when_load_fails(void) {
+    setup_avatars();
+    TEST_ASSERT_TRUE(roster_student_has_photo(find_idx("2023-0142")));
+
+    mocksd_add_file("/students/students.json", "{ oops");
+    roster_service_reload();
+    TEST_ASSERT_EQUAL(ROSTER_BAD_STUDENTS, roster_get_status());
+    for (int i = 0; i < ROSTER_MAX_STUDENTS; i++) {
+        TEST_ASSERT_FALSE(roster_student_has_photo(i));
+    }
+}
+
+// roster_enroll_new() appends to the registry in place instead of reloading, so
+// the bitset must be sized to the CAP, not to the loaded count: the new slot has
+// to be readable (and false) without a rescan, and the students already indexed
+// must not shift.
+static void test_avatar_index_survives_enroll_without_reload(void) {
+    setup_avatars();
+    TEST_ASSERT_EQUAL_INT(1, roster_class_photo_count(roster_class_at(0)));
+
+    roster_result_t r = roster_enroll_new("CS101-M1", "2025-0500", "Late Arrival",
+                                          "AA:BB:CC:DD", nullptr);
+    TEST_ASSERT_TRUE_MESSAGE(r.ok, r.message);
+
+    int fresh = find_idx("2025-0500");
+    TEST_ASSERT_TRUE(fresh >= 0);
+    TEST_ASSERT_FALSE(roster_student_has_photo(fresh));   // no authored avatar yet
+    TEST_ASSERT_TRUE(roster_student_has_photo(find_idx("2023-0142")));  // unshifted
+    TEST_ASSERT_EQUAL_INT(1, roster_class_photo_count(roster_class_at(0)));
+}
+
 static void test_class_capture_and_settings(void) {
     mocksd_reset();
     mocksd_add_file("/students/students.json", STUDENTS_JSON);
@@ -891,5 +997,11 @@ int main(int, char**) {
     RUN_TEST(test_class_without_teachers_loads_but_matches_nobody);
     RUN_TEST(test_teacher_list_is_capped);
     RUN_TEST(test_blank_teacher_entries_are_skipped);
+    RUN_TEST(test_avatar_index_counts_only_this_class);  // avatar index: own fixtures
+    RUN_TEST(test_avatar_index_ignores_non_avatars);
+    RUN_TEST(test_avatar_index_without_photo_dir);
+    RUN_TEST(test_avatar_index_refreshes_on_reload);
+    RUN_TEST(test_avatar_index_cleared_when_load_fails);
+    RUN_TEST(test_avatar_index_survives_enroll_without_reload);
     return UNITY_END();
 }

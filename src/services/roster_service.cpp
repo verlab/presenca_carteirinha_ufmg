@@ -7,11 +7,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>  // strcasecmp, for the avatar filename extension
 
 #include "app/credential.h"
 #include "app/event_bus.h"
 #include "app/uid.h"
 #include "esp32-hal-log.h"
+#include "esp_timer.h"
 #include "services/device_secret.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -23,6 +25,7 @@
 static const char* TAG = "roster";
 
 static constexpr const char* STUDENTS_PATH = "/students/students.json";
+static constexpr const char* PHOTOS_DIR = "/students/photos";
 static constexpr const char* CLASSES_DIR = "/classes";
 static constexpr uint32_t RETRY_PERIOD_MS = 3000;
 // Sanity caps so a wrong file (or one written by accident) can't exhaust RAM.
@@ -37,6 +40,19 @@ static student_t s_students[ROSTER_MAX_STUDENTS];
 static int s_student_count = 0;
 static class_rec_t s_classes[ROSTER_MAX_CLASSES];
 static int s_class_count = 0;
+
+// One bit per REGISTRY SLOT (not per loaded student): "this student has an
+// authored avatar on the card". 75 B, which is the point — the alternative is
+// asking the card, and /students/photos is one flat directory holding EVERY
+// student's avatar. Walking it costs hundreds of FAT directory-entry reads
+// (sd_tree.cpp says the same about wiping it), and the class screens used to pay
+// that on every view build.
+//
+// Sized to the cap rather than s_student_count so that roster_enroll_new(),
+// which appends in place instead of reloading, cannot walk off the end: the new
+// slot is already zeroed, and reads as "no photo" - which is right, since a
+// student enrolled here has no authored avatar until the next import.
+static uint8_t s_has_photo[(ROSTER_MAX_STUDENTS + 7) / 8];
 
 // Records the failure reason (shown verbatim on the idle screen, so the text
 // must name the file and the problem) and passes the status through.
@@ -54,6 +70,80 @@ static int find_student(const char* id) {
         if (strcmp(s_students[i].id, id) == 0) return i;
     }
     return -1;
+}
+
+// "12345.jpg" -> "12345". False for anything that isn't a .jpg, or whose stem is
+// longer than a student id can be (so it could never match one anyway).
+static bool photo_stem(const char* filename, char* out, size_t cap) {
+    if (!filename || !out || !cap) return false;
+    const char* dot = strrchr(filename, '.');
+    if (!dot || strcasecmp(dot, ".jpg") != 0) return false;
+    size_t len = (size_t)(dot - filename);
+    if (len == 0 || len >= cap) return false;
+    memcpy(out, filename, len);
+    out[len] = '\0';
+    return true;
+}
+
+// Rebuilds s_has_photo from one pass over /students/photos, matching each
+// filename against the registry in RAM. Avatars are named by university ID,
+// which the fingerprint conversion never rewrites (it only touches rfid_uid), so
+// this matching survives it.
+//
+// Caller holds s_lock and passes whether the load succeeded. A missing directory
+// is not an error: avatars are optional, and the answer is simply "nobody has
+// one".
+//
+// The index is always cleared first, so a failed load drops it rather than
+// leaving stale bits. The walk itself is skipped on a failed load - there is no
+// registry to match filenames against, and roster_task() retries every 3 s until
+// the card is fixed, which would otherwise re-walk the photo directory each time.
+static void scan_avatars(bool loaded) {
+    memset(s_has_photo, 0, sizeof(s_has_photo));
+    if (!loaded || !sd_card_mount()) return;
+
+    const int64_t t0 = esp_timer_get_time();
+    File dir = SD_MMC.open(PHOTOS_DIR);
+    if (!dir || !dir.isDirectory()) {
+        if (dir) dir.close();
+        return;
+    }
+
+    int matched = 0, seen = 0;
+    File e;
+    while ((e = dir.openNextFile())) {
+        if (!e.isDirectory()) {
+            seen++;
+            char id[sizeof(student_t::id)];
+            int idx;
+            if (photo_stem(e.name(), id, sizeof(id)) && (idx = find_student(id)) >= 0) {
+                s_has_photo[idx / 8] |= (uint8_t)(1u << (idx % 8));
+                matched++;
+            }
+        }
+        e.close();
+    }
+    dir.close();
+
+    // Instrumentation: this is the SD cost the class screens used to pay per view
+    // build, and it can only be measured on the device. It should appear once per
+    // load - if it shows up while navigating, something is reloading the roster.
+    ESP_LOGI(TAG, "avatar index: %d/%d students, %d files scanned, %lld ms", matched,
+             s_student_count, seen, (long long)((esp_timer_get_time() - t0) / 1000));
+}
+
+bool roster_student_has_photo(int student_idx) {
+    if (student_idx < 0 || student_idx >= s_student_count) return false;
+    return (s_has_photo[student_idx / 8] & (1u << (student_idx % 8))) != 0;
+}
+
+int roster_class_photo_count(const class_rec_t* cls) {
+    if (!cls) return 0;
+    int n = 0;
+    for (int j = 0; j < cls->roster_count; j++) {
+        if (roster_student_has_photo(cls->roster[j])) n++;
+    }
+    return n;
 }
 
 // Normalized-UID scratch, parallel to s_students, used only while parsing.
@@ -404,6 +494,14 @@ static roster_status_t locked_load(void) {
                       "Could not secure students.json - SD full or write-protected?");
         }
     }
+
+    // Last, and deliberately NOT inside load_all(): that runs twice on the
+    // conversion path above, and it also serves roster_validate_tree() against a
+    // STAGED tree, whose avatars must not become the live index. Rebuilding here
+    // means one walk per load, and every way avatars change (import, admin
+    // reload, boot, a web edit once the class list re-syncs) goes through a load.
+    scan_avatars(st == ROSTER_OK);
+
     xSemaphoreGive(s_lock);
     return st;
 }

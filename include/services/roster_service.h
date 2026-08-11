@@ -64,6 +64,24 @@ const student_t* roster_student_at(int idx);
 // Index of the class with this code, or -1.
 int roster_class_index(const char* code);
 
+// --- Authored-avatar index ---------------------------------------------------
+//
+// Which registry students have a /students/photos/<id>.jpg on the card. Built by
+// ONE directory walk per load (see the note in the .cpp), so these two are pure
+// RAM reads: safe to call while building a screen.
+//
+// Rebuilt on every load/reload, which is every way avatars can change (config
+// import, admin reload, boot, and a web edit once the class list re-syncs). A
+// student enrolled at the device after a load reads as "no photo", which is
+// correct — they have no authored avatar until the next import.
+
+// True when this registry student has an avatar on the card. False for an
+// out-of-range index, an unloaded roster, or no card.
+bool roster_student_has_photo(int student_idx);
+
+// How many students in this class have an avatar. 0 for a NULL class.
+int roster_class_photo_count(const class_rec_t* cls);
+
 // Validates a staged roster tree rooted at `root` (e.g. "/import_staging") with
 // the exact live rules, WITHOUT changing what the service publishes — used by
 // the config importer to check a tar before applying it. Reads

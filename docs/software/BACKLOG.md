@@ -19,19 +19,20 @@ unnoticed because the sample rosters are ASCII-only. The fix and a ready-to-run
 **Internal RAM is still the constrained pool, and the roster caps now dominate
 it.** Moving the LVGL heap to PSRAM returned 255 KB, and moving
 `attendance_clear`/`attendance_present_for`/`load_students` scratch off `.bss`
-returned another 8 KB — but raising `ROSTER_MAX_CLASS_STUDENTS` to 200 then spent
-26,808 B, so static internal is back up to 160 KB. Of that, **104 KB** is
-`s_students` (55,200 B) and `s_classes` (51,216 B): fixed-size arrays holding the
-600-student / 12-class / 200-per-class caps regardless of what the card actually
-contains.
+returned another 8 KB — but raising `ROSTER_MAX_CLASS_STUDENTS` to 200 spent
+26,808 B and the follow-up raise to 250 spent 13,408 B more, so static internal is
+up to 174 KB. Of that, **114 KB** is `s_students` (55,200 B) and `s_classes`
+(62,016 B): fixed-size arrays holding the 600-student / 12-class / 250-per-class
+caps regardless of what the card actually contains.
 
 Two levers, in order of value:
 - **Move `s_students`/`s_classes` to PSRAM** at `roster_service_start()`. Returns
-  ~104 KB and removes the coupling between "how many students can we hold" and
+  ~114 KB and removes the coupling between "how many students can we hold" and
   "is there room for the face model". This is the one to take before raising any
-  cap again.
-- **`class_rec_t::roster_turma[200][16]` is 3,200 B of the 4,268 B per class**
-  — 38 KB across 12 classes for a tag ARCHITECTURE.md describes as
+  cap again — the 250 raise was taken without it, so the margin over the face
+  model's 128 KB-free check is now smaller than when that threshold was picked.
+- **`class_rec_t::roster_turma[250][16]` is 4,000 B of the 5,168 B per class**
+  — 48 KB across 12 classes for a tag ARCHITECTURE.md describes as
   "display/statistics only". Storing turmas as indices into a small per-class
   string table, or dropping the in-RAM copy entirely, would reclaim most of it.
 
@@ -47,10 +48,29 @@ the model's SD read actually needs. The `log_heap()` lines in `wifi_ap` and
 load; one session with the AP up settles whether these are too tight, too loose,
 or right.
 
-**Q4 — battery % vs real discharge.** The curve is linear **4.20 V (100%) → 2.70 V
-(0%)** in 75 mV / 5% steps (pack datasheet range; post-`BAT_CAL_SCALE` volts).
-The ADC divider and the shape under load are still unverified against a real
-discharge — the `BATTERY_DRAIN_LOG` build flag exists to collect that data.
+**Q4 — battery % vs real discharge.** The curve is linear **3.90 V (100%) → 3.30 V
+(0%)** in 30 mV / 5% steps (post-`BAT_CAL_SCALE` volts). Both anchors are the
+range this *board* can use, not the cell's 4.20 V / 2.70 V datasheet range, so
+the reading reaches 0% when the device stops and 100% on a rested pack instead of
+stalling in the 90s. Three things are still unverified against a real discharge:
+
+- **that 3.30 V and 3.90 V are the right endpoints** — they are the working
+  assumption, not a measured brown-out and a measured resting top.
+- **resolution.** 600 mV wide means 30 mV per 5% step, and 30 mV is not far above
+  this divider's noise and calibration error. If the percentage visibly jitters
+  between samples, that is this, and the fix is smoothing in `battery_service`
+  (average or slew-limit the reported value), not more anchors.
+- **shape under load.** A real Li-ion cell is far from linear; the middle of the
+  table is the crudest part.
+
+**The charging icon may now be unreachable.** `battery_is_charging()` still keys
+off > 4.20 V, deliberately decoupled from the 3.90 V full anchor (tying it to
+3.90 V would light the icon on any resting pack). But if this unit never reports
+above 4.20 V, the icon never shows. The same drain log settles it: if the reading
+tops out well under 4.20 V on USB, lower `CHARGING_MV` to just above the observed
+resting maximum.
+
+The `BATTERY_DRAIN_LOG` build flag exists to collect all of this.
 
 ## Security
 

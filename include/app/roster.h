@@ -12,7 +12,7 @@ constexpr int ROSTER_MAX_CLASSES = 12;
 // Per-class roster cap. Raising this is not free: it widens class_rec_t (which
 // is held ROSTER_MAX_CLASSES times) AND attendance_store's present/tap-in sets,
 // all in internal RAM. See the RAM note below for the measured cost.
-constexpr int ROSTER_MAX_CLASS_STUDENTS = 200;
+constexpr int ROSTER_MAX_CLASS_STUDENTS = 250;
 // A class can be co-taught. Mirrors CONFIG_MAX_TEACHERS (config_service.h) —
 // a class can't reference more professors than the device can hold. The
 // config-builder's schema-sync test asserts the two stay equal.
@@ -26,22 +26,25 @@ constexpr int FACE_VERIFY_SECONDS_DEFAULT = 15;
 // counts. class.json's optional "min_attendance_min".
 constexpr int MIN_ATTENDANCE_MIN_DEFAULT = 45;
 // NOTE: these caps are paid for in INTERNAL RAM, the scarce pool
-// (docs/software/ARCHITECTURE.md §Memory budget). Measured on the v0.2.0 build
-// with `riscv32-esp-elf-nm --size-sort -S`:
+// (docs/software/ARCHITECTURE.md §Memory budget). Measured with
+// `riscv32-esp-elf-nm --size-sort -S`:
 //
 //   s_students[600]  55,200 B   600 * sizeof(student_t) (92 B)
-//   s_classes[12]    51,216 B   12 * sizeof(class_rec_t) (4,268 B)
-//   attendance_store 10,400 B   present + tap-in sets, sized by the class cap
+//   s_classes[12]    62,016 B   12 * sizeof(class_rec_t) (5,168 B)
+//   attendance_store 13,000 B   present + tap-in sets, sized by the class cap
 //
-// Raising ROSTER_MAX_CLASS_STUDENTS from 100 to 200 cost 26,808 B of that:
-// +21,600 in s_classes (roster_turma is ~75% of it) and +5,208 in
-// attendance_store. Total static internal is 160 KB, up from 134 KB.
+// Each +1 on ROSTER_MAX_CLASS_STUDENTS costs 268 B: 216 B in s_classes (18 B per
+// class x 12, and roster_turma is 16 of those 18) plus 52 B in attendance_store.
+// The two raises so far, measured end to end:
 //
-// There is headroom, but this is the budget the face-detection model check
-// (128 KB free / 64 KB largest block) and every sdmmc DMA transfer draw from.
-// Before raising these again, either measure free internal RAM on device or take
-// the lever BACKLOG.md names: move s_students/s_classes to PSRAM at
-// roster_service_start().
+//   100 -> 200   +26,808 B   static internal 134 KB -> 160 KB
+//   200 -> 250   +13,408 B   static internal 160 KB -> 174 KB (177,900 B)
+//
+// That is the budget the face-detection model check (128 KB free / 64 KB largest
+// block) and every sdmmc DMA transfer draw from, and 250 was taken WITHOUT first
+// moving the arrays to PSRAM as BACKLOG.md advises. Before raising this again,
+// take that lever (move s_students/s_classes to PSRAM at roster_service_start())
+// rather than spending more of the pool.
 
 typedef struct {
     char id[20];        // university ID, the stable key

@@ -72,7 +72,7 @@ static void build_stats(lv_obj_t* parent) {
     ui_make_label(card, "Statistics", THEME_PRIMARY, &lv_font_montserrat_20);
 
     int total = s_cls->roster_count;
-    int with_photo = student_photo_count_for_class(s_cls);
+    int with_photo = roster_class_photo_count(s_cls);
 
     char line[96];
     snprintf(line, sizeof(line), "%d students   %d with photo", total, with_photo);

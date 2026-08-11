@@ -494,12 +494,13 @@ static void build_session_open(void) {
     lv_obj_set_flex_flow(extras, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(extras, 8, 0);
 
-    // Read here rather than on screen entry: this card is the only place that
-    // shows it, and the hub the class list lands on must not pay for SD I/O.
-    // Card scans restyle only the chip (refresh_roll_chip), not this view.
+    // Counted from the avatar index the roster builds at load time, so no SD I/O
+    // happens here. It used to walk /students/photos on every build of this view
+    // - entering from the hub, opening a session, and every return from kiosk or
+    // enroll - which is what made this screen take seconds to appear.
     char photo_txt[48];
     snprintf(photo_txt, sizeof(photo_txt), LV_SYMBOL_IMAGE "  %d/%d with photo",
-             student_photo_count_for_class(s_cls), total);
+             roster_class_photo_count(s_cls), total);
     ui_make_label(extras, photo_txt, THEME_MUTED, &lv_font_montserrat_14);
 
     char turma_txt[160];

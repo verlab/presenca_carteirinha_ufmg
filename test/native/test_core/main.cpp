@@ -72,22 +72,31 @@ static void test_session_clear(void) {
 // ---- battery curve ---------------------------------------------------------
 
 static void test_battery_endpoints(void) {
-    TEST_ASSERT_EQUAL_UINT8(100, battery_mv_to_pct(4300));  // above 100% anchor clamps
-    TEST_ASSERT_EQUAL_UINT8(100, battery_mv_to_pct(4200));  // 4.20 V = 100%
-    TEST_ASSERT_EQUAL_UINT8(0, battery_mv_to_pct(2700));    // 2.70 V = 0%
-    TEST_ASSERT_EQUAL_UINT8(0, battery_mv_to_pct(2500));    // below clamps
+    TEST_ASSERT_EQUAL_UINT8(100, battery_mv_to_pct(3900));  // 3.90 V = 100%
+    TEST_ASSERT_EQUAL_UINT8(0, battery_mv_to_pct(3300));    // 3.30 V = 0%, the board's floor
+    TEST_ASSERT_EQUAL_UINT8(0, battery_mv_to_pct(3000));    // below clamps
+    TEST_ASSERT_EQUAL_UINT8(0, battery_mv_to_pct(2700));    // the cell's datasheet floor
+}
+
+// "100% at 3.9 V or more": everything from the full anchor up to a pack on USB
+// reads full, with no dip back below 100 anywhere in that band.
+static void test_battery_above_full_anchor_stays_100(void) {
+    for (uint16_t mv = 3900; mv <= 4300; mv += 10) {
+        TEST_ASSERT_EQUAL_UINT8(100, battery_mv_to_pct(mv));
+    }
 }
 
 static void test_battery_table_points(void) {
-    // Linear 4.20 V (100%) .. 2.70 V (0%), anchors every 5% (75 mV).
-    TEST_ASSERT_EQUAL_UINT8(50, battery_mv_to_pct(3450));
-    TEST_ASSERT_EQUAL_UINT8(75, battery_mv_to_pct(3825));
-    TEST_ASSERT_EQUAL_UINT8(25, battery_mv_to_pct(3075));
-    TEST_ASSERT_EQUAL_UINT8(60, battery_mv_to_pct(3600));
+    // Linear 3.90 V (100%) .. 3.30 V (0%), anchors every 5% (30 mV).
+    TEST_ASSERT_EQUAL_UINT8(50, battery_mv_to_pct(3600));
+    TEST_ASSERT_EQUAL_UINT8(75, battery_mv_to_pct(3750));
+    TEST_ASSERT_EQUAL_UINT8(25, battery_mv_to_pct(3450));
+    TEST_ASSERT_EQUAL_UINT8(60, battery_mv_to_pct(3660));
 }
 
 // The board has no charge-status line, so "charging" is inferred from the rail
-// reading strictly above the 4.20 V full anchor.
+// reading strictly above the cell's own 4.20 V full voltage. That threshold is
+// independent of the curve's 3.90 V 100% anchor.
 static void test_battery_charging_threshold(void) {
     TEST_ASSERT_FALSE(battery_is_charging(4200));  // exactly full is not charging
     TEST_ASSERT_TRUE(battery_is_charging(4201));
@@ -95,21 +104,23 @@ static void test_battery_charging_threshold(void) {
 }
 
 static void test_battery_full_pack_is_not_charging(void) {
-    // A full pack at the 100% anchor must not show the charging icon.
+    // A rested pack must not show the charging icon, at any reading the curve
+    // calls full — including the 3.90 V anchor itself.
     TEST_ASSERT_FALSE(battery_is_charging(4200));
+    TEST_ASSERT_FALSE(battery_is_charging(3900));
     TEST_ASSERT_FALSE(battery_is_charging(3000));
     TEST_ASSERT_FALSE(battery_is_charging(0));
 }
 
 static void test_battery_interpolates_between_points(void) {
-    // 3400 mV sits between 3375 (45%) and 3450 (50%):
-    // 25/75 of the span → 45 + 1.67 → rounds to 47.
-    TEST_ASSERT_EQUAL_UINT8(47, battery_mv_to_pct(3400));
+    // 3700 mV sits between 3690 (65%) and 3720 (70%):
+    // 10/30 of the span → 65 + 1.67 → rounds to 67.
+    TEST_ASSERT_EQUAL_UINT8(67, battery_mv_to_pct(3700));
 }
 
 static void test_battery_monotonic(void) {
     uint8_t prev = 0;
-    for (uint16_t mv = 2900; mv <= 4300; mv += 10) {
+    for (uint16_t mv = 3200; mv <= 4300; mv += 10) {
         uint8_t pct = battery_mv_to_pct(mv);
         TEST_ASSERT_TRUE(pct >= prev);
         prev = pct;
@@ -126,6 +137,7 @@ int main(int, char**) {
     RUN_TEST(test_session_set_copies_teacher);
     RUN_TEST(test_session_clear);
     RUN_TEST(test_battery_endpoints);
+    RUN_TEST(test_battery_above_full_anchor_stays_100);
     RUN_TEST(test_battery_table_points);
     RUN_TEST(test_battery_interpolates_between_points);
     RUN_TEST(test_battery_monotonic);

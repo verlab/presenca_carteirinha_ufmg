@@ -3,6 +3,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "app/device_prefs.h"
+
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
@@ -61,6 +63,7 @@ static i2c_master_dev_handle_t s_codec = NULL;
 static TaskHandle_t s_task = NULL;
 static QueueHandle_t s_queue = NULL;
 static beep_tone_t s_tones[BEEP_COUNT];
+static uint8_t s_volume = DEVICE_PREFS_BEEP_DEFAULT;
 
 static bool es8311_write(uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
@@ -91,8 +94,8 @@ static bool es8311_init() {
         {0x14, 0x1A},
         {0x1C, 0x6A},
         {0x37, 0x08},  // DAC ramp / EQ bypass
-        {0x32, 0xB0},  // DAC volume (a bit under 0 dB; buzzer is close-range)
-        {0x31, 0x00},  // unmute
+        {0x32, DEVICE_PREFS_BEEP_DAC_MAX},  // DAC 0 dB; Admin volume scales this
+        {0x31, 0x00},                       // unmute
     };
 
     // Reset first; a failed ACK here means no codec on the bus
@@ -159,7 +162,14 @@ static void beeper_task(void*) {
 }
 
 static void queue_beep(beep_type_t type) {
+    if (s_volume == 0) return;
     if (s_queue != NULL) xQueueSend(s_queue, &type, 0);
+}
+
+void beeper_set_volume(uint8_t percent) {
+    s_volume = device_prefs_clamp_beep_volume(percent);
+    if (s_codec == NULL) return;
+    es8311_write(0x32, device_prefs_beep_dac(s_volume));
 }
 
 bool beeper_init() {
@@ -215,6 +225,7 @@ bool beeper_init() {
     s_queue = xQueueCreate(4, sizeof(beep_type_t));
     if (s_queue == NULL) return false;
     xTaskCreate(beeper_task, "beeper", 4096, NULL, 3, &s_task);
+    beeper_set_volume(DEVICE_PREFS_BEEP_DEFAULT);
     ESP_LOGI(TAG, "audio path up (ES8311 + NS4150 on CN1)");
     return true;
 }

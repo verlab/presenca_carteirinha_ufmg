@@ -48,10 +48,10 @@ What this means for you:
 ```
 src/ui/        LVGL screens/components/theme — the ONLY code that includes lvgl.h
 src/app/       pure logic, no hardware: event_bus, auth, session, uid, ustar,
-               battery_curve, photo_fit — this is what the native tests compile
+               battery_curve, photo_fit, device_prefs — this is what the native tests compile
 src/services/  own hardware + SD, run FreeRTOS tasks (never touch LVGL)
 src/storage/   SD modules: sd_card, atomic_file, attendance_store, photo_store,
-               checkin_store, backup_store, sd_tree, battery_log
+               checkin_store, backup_store, sd_tree, battery_log, device_prefs_store
 src/camera/    OV02C10 sensor, csi_pipeline, auto_exposure
 src/lcd/  src/touch/  src/rfid/  src/audio/     device drivers
 ```

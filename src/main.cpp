@@ -5,7 +5,9 @@
 #include "app/event_bus.h"
 #include "app/version.h"
 #include "audio/beeper.h"
+#include "lcd/backlight.h"
 #include "lcd/st7701_lcd.h"
+#include "storage/device_prefs_store.h"
 #include "lvgl_port.h"
 #include "services/battery_service.h"
 #include "services/config_service.h"
@@ -85,6 +87,13 @@ void setup() {
     // idle screen's first frame already reflects the real SD state.
     config_service_start();
     roster_service_start();
+
+    // Device-local brightness / beep volume (/settings.json). Applied after
+    // the card is mounted so a missing file just keeps the hardware defaults.
+    device_prefs_t prefs;
+    device_prefs_store_load(&prefs);
+    lcd_set_brightness(prefs.brightness);
+    beeper_set_volume(prefs.beep_volume);
 
     lvgl_port_init(lcd, touch);
     ui_init();

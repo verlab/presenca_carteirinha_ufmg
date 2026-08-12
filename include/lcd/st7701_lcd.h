@@ -22,7 +22,8 @@ public:
     // lcd_rst: external panel reset GPIO, or -1 if the board has none.
     explicit st7701_lcd(int8_t lcd_rst);
 
-    // Powers the DSI PHY, initializes the panel, and turns the backlight on.
+    // Powers the DSI PHY, initializes the panel, and turns the backlight on
+    // at 100%. Call lcd_set_brightness() afterwards to apply a saved level.
     void begin();
 
     // Blits an RGB565 region to the panel. Coordinates are half-open:
@@ -39,7 +40,6 @@ public:
 private:
     void enable_dsi_phy_power();
     void init_backlight();
-    void set_backlight(uint32_t level);
 
     int8_t _lcd_rst;
 };

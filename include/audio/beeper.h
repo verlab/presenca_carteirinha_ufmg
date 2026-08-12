@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // Short confirmation beep through the board's audio path: ES8311 codec
 // (shared I2C bus) -> I2S -> NS4150 class-D amp -> CN1 speaker connector
 // (passive electromagnetic buzzer or small speaker).
@@ -19,3 +21,8 @@ void beeper_touch();
 
 // Distinct low double-beep signalling a problem / access denied.
 void beeper_error();
+
+// Master volume 0-100 (0 = mute). Writes the ES8311 DAC register; tones are
+// not rebuilt. No-op if beeper_init() failed. Call after init to apply a
+// saved level.
+void beeper_set_volume(uint8_t percent);

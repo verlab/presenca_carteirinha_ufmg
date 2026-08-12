@@ -4,15 +4,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "app/device_prefs.h"
 #include "app/session.h"
 #include "app/version.h"
 #include "audio/beeper.h"
 #include "esp32-hal-log.h"
+#include "lcd/backlight.h"
 #include "services/config_service.h"
 #include "services/import_service.h"
 #include "services/roster_service.h"
 #include "storage/attendance_store.h"
 #include "storage/backup_store.h"
+#include "storage/device_prefs_store.h"
 #include "storage/sd_card.h"
 #include "storage/sd_tree.h"
 #include "ui/components/keyboard.h"
@@ -319,8 +322,88 @@ static void build_rfid(void) {
 static void camera_preview_cb(lv_event_t*) { scr_mgr_show(SCREEN_CAMERA, nullptr); }
 static void about_cb(lv_event_t*) { scr_mgr_show(SCREEN_ABOUT, nullptr); }
 
+static device_prefs_t s_prefs;
+
+static void prefs_save(void) {
+    if (!device_prefs_store_save(&s_prefs)) {
+        ui_toast_show("Could not save settings", false);
+    }
+}
+
+static void set_pct_label(lv_obj_t* lbl, uint8_t pct) {
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%u%%", (unsigned)pct);
+    lv_label_set_text(lbl, buf);
+}
+
+// One labelled slider: title + live percent on a row, then the bar. The
+// slider itself is silent (no click beep) so dragging brightness does not
+// tick on every step; beep volume previews on release.
+static void make_pref_slider(lv_obj_t* parent, const char* title, uint8_t value, int32_t min,
+                             int32_t max, lv_event_cb_t on_changed, lv_event_cb_t on_released) {
+    lv_obj_t* row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    ui_make_label(row, title, THEME_TEXT, &lv_font_montserrat_14);
+    lv_obj_t* pct = ui_make_label(row, "", THEME_MUTED, &lv_font_montserrat_14);
+    set_pct_label(pct, value);
+
+    lv_obj_t* slider = lv_slider_create(parent);
+    lv_obj_set_width(slider, LV_PCT(100));
+    lv_obj_set_height(slider, 22);
+    lv_obj_set_ext_click_area(slider, 16);
+    lv_slider_set_range(slider, min, max);
+    lv_slider_set_value(slider, value, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(THEME_BORDER), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(THEME_ACCENT), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(THEME_PRIMARY), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider, 10, LV_PART_KNOB);
+    lv_obj_add_event_cb(slider, on_changed, LV_EVENT_VALUE_CHANGED, pct);
+    if (on_released) lv_obj_add_event_cb(slider, on_released, LV_EVENT_RELEASED, nullptr);
+}
+
+static void brightness_changed_cb(lv_event_t* e) {
+    lv_obj_t* slider = (lv_obj_t*)lv_event_get_target(e);
+    uint8_t pct = (uint8_t)lv_slider_get_value(slider);
+    s_prefs.brightness = device_prefs_clamp_brightness(pct);
+    lcd_set_brightness(s_prefs.brightness);
+    set_pct_label((lv_obj_t*)lv_event_get_user_data(e), s_prefs.brightness);
+}
+
+static void brightness_released_cb(lv_event_t*) { prefs_save(); }
+
+static void beep_changed_cb(lv_event_t* e) {
+    lv_obj_t* slider = (lv_obj_t*)lv_event_get_target(e);
+    uint8_t pct = (uint8_t)lv_slider_get_value(slider);
+    s_prefs.beep_volume = device_prefs_clamp_beep_volume(pct);
+    beeper_set_volume(s_prefs.beep_volume);
+    set_pct_label((lv_obj_t*)lv_event_get_user_data(e), s_prefs.beep_volume);
+}
+
+static void beep_released_cb(lv_event_t*) {
+    prefs_save();
+    beeper_beep();  // preview at the new volume (no-op when muted)
+}
+
 static void build_settings(void) {
     lv_obj_clean(s_settings);
+
+    device_prefs_store_load(&s_prefs);
+
+    lv_obj_t* sound = ui_make_card(s_settings);
+    lv_obj_set_flex_flow(sound, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(sound, 8, 0);
+    ui_make_label(sound, "Display & sound", THEME_PRIMARY, &lv_font_montserrat_20);
+
+    make_pref_slider(sound, "Screen brightness", s_prefs.brightness,
+                     DEVICE_PREFS_BRIGHTNESS_MIN, DEVICE_PREFS_BRIGHTNESS_MAX,
+                     brightness_changed_cb, brightness_released_cb);
+    make_pref_slider(sound, "Beep volume", s_prefs.beep_volume, DEVICE_PREFS_BEEP_MIN,
+                     DEVICE_PREFS_BEEP_MAX, beep_changed_cb, beep_released_cb);
 
     lv_obj_t* card = ui_make_card(s_settings);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
@@ -727,13 +810,14 @@ static lv_obj_t* create(void) {
                                         sign_out_cb, nullptr);
     lv_obj_set_width(sign_out, LV_PCT(100));
 
-    // SD-card usage first, then settings (camera preview), password, then debug
-    // tools. Settings sits above password so the "Camera preview" button comes
-    // before "Change password".
+    // SD-card usage first, then display/sound + camera, password, then debug
+    // tools. Settings sits above password so brightness and the camera
+    // preview come before "Change password".
     s_storage = make_section(sh.body);
     lv_obj_set_style_margin_top(s_storage, 24, 0);  // separate it from the sections above
 
     s_settings = make_section(sh.body);
+    lv_obj_set_style_pad_row(s_settings, 16, 0);
     s_security = make_section(sh.body);
     s_rfid = make_section(sh.body);
     s_import = make_section(sh.body);

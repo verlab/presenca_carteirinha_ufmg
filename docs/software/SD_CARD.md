@@ -46,6 +46,7 @@ re-enrol the cards, and re-import `config.tar` for the professors.
 /photos/IMG_nnnn.jpg                          camera-screen snapshots (.bmp fallback)
 /csv_export/<CODE>.csv                        attendance export, MATRICULA,FREQ
 /backup/previous/                             pre-import snapshot of the authored files
+/settings.json                                device brightness and beep volume (Admin)
 /battery.csv                                  drain log, debug builds only
 ```
 

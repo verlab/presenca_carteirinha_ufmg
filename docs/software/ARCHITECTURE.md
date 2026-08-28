@@ -12,12 +12,12 @@ Strict layering, events flow up. Only `ui/` includes `lvgl.h`.
 src/ui/        LVGL screens, components, theme
 src/app/       pure logic, no hardware: event_bus, auth, session, uid, ustar,
                battery_curve, photo_fit, card_gate, class_stats, progress,
-               sha256, credential
+               sha256, credential, device_prefs
 src/services/  own hardware + SD, run FreeRTOS tasks: config, roster, rfid,
                battery, export, wifi_ap, file_server, face_detection, import
 src/storage/   SD modules: sd_card (mount), atomic_file (crash-safe replace),
                attendance_store, photo_store, checkin_store, backup_store,
-               sd_tree, battery_log
+               sd_tree, battery_log, device_prefs_store
 src/camera/    OV02C10 sensor, csi_pipeline, auto_exposure
 src/lcd/  src/touch/  src/rfid/  src/audio/     device drivers
 ```
@@ -86,7 +86,7 @@ lazily; per-visit state belongs in `on_show`. Ids are in `include/ui/screen.h`.
 | `scr_kiosk` | Unattended self check-in, professor-gated exit | class session |
 | `scr_export` | CSV attendance export | footer **Export** |
 | `scr_wifi_editor` | Soft-AP + web file manager | footer **WiFi File Editor** |
-| `scr_admin` | Profile, SD usage, password, RFID, camera, debug, import | footer **Admin** |
+| `scr_admin` | Profile, SD usage, brightness/beep, password, RFID, camera, debug, import | footer **Admin** |
 | `scr_camera` | Camera preview + face boxes + model diagnostics | Admin |
 | `scr_about` | Credits, version, repo QR | Admin |
 | `scr_charging` | Signs out and turns the backlight off for faster USB charging; touch or a card tap wakes to the idle gate | Admin **Power** card |

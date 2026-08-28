@@ -22,8 +22,9 @@ public:
     // lcd_rst: external panel reset GPIO, or -1 if the board has none.
     explicit st7701_lcd(int8_t lcd_rst);
 
-    // Powers the DSI PHY, initializes the panel, and turns the backlight on.
-    // (See also st7701_backlight() below for runtime on/off.)
+    // Powers the DSI PHY, initializes the panel, and turns the backlight on
+    // at 100%. Call lcd_set_brightness() afterwards to apply a saved level;
+    // see st7701_backlight() below for runtime full off/on.
     void begin();
 
     // Blits an RGB565 region to the panel. Coordinates are half-open:
@@ -40,14 +41,15 @@ public:
 private:
     void enable_dsi_phy_power();
     void init_backlight();
-    void set_backlight(uint32_t level);
 
     int8_t _lcd_rst;
 };
 
-// Backlight on/off at runtime (plain GPIO on this board, no dimming). Free
-// function so UI code can drive it without holding the panel object — the
-// charging screen turns the light off and the wake path turns it back on.
+// Backlight full off/on at runtime. Off drives the PWM to zero duty —
+// deliberately below lcd_set_brightness()'s 10% floor — and on restores the
+// last brightness lcd_set_brightness() applied. Free function so UI code can
+// drive it without holding the panel object — the charging screen turns the
+// light off and the wake path turns it back on.
 void st7701_backlight(bool on);
 
 #endif  // _ST7701_LCD_H

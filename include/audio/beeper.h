@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // Short confirmation beep through the board's audio path: ES8311 codec
 // (shared I2C bus) -> I2S -> NS4150 class-D amp -> CN1 speaker connector
 // (passive electromagnetic buzzer or small speaker).
@@ -8,7 +10,7 @@
 // false if the codec doesn't answer; the beep calls are then no-ops.
 bool beeper_init();
 
-// All three queue one sound and return immediately. Non-blocking, safe from
+// All four queue one sound and return immediately. Non-blocking, safe from
 // any task (not ISR).
 
 // General confirmation beep (e.g. a card was read).
@@ -23,3 +25,8 @@ void beeper_error();
 // Rising two-tone chirp played right after beeper_init() at boot, so the
 // device signals life seconds before the display shows its first frame.
 void beeper_startup();
+
+// Master volume 0-100 (0 = mute). Writes the ES8311 DAC register; tones are
+// not rebuilt. No-op if beeper_init() failed. Call after init to apply a
+// saved level.
+void beeper_set_volume(uint8_t percent);

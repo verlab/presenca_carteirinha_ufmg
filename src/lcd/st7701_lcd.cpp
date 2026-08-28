@@ -1,7 +1,10 @@
 #include "lcd/st7701_lcd.h"
 
+#include "app/device_prefs.h"
 #include "driver/gpio.h"
+#include "esp32-hal-ledc.h"
 #include "esp32-hal-log.h"
+#include "lcd/backlight.h"
 #include "esp_err.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
@@ -17,9 +20,10 @@
 #define MIPI_DSI_PHY_PWR_LDO_CHAN 3
 #define MIPI_DSI_PHY_PWR_LDO_VOLTAGE_MV 2500
 
-// Backlight is a plain GPIO on this board (active high).
-#define PIN_NUM_BK_LIGHT GPIO_NUM_23
-#define LCD_BK_LIGHT_ON_LEVEL 1
+// Backlight is GPIO 23, active high. PWM (LEDC) so Admin can dim it.
+#define PIN_NUM_BK_LIGHT 23
+#define BK_LEDC_FREQ_HZ 20000
+#define BK_LEDC_RES_BITS 10
 
 // Panel reset line, fixed on this board.
 #define PIN_NUM_LCD_RST GPIO_NUM_5
@@ -43,19 +47,29 @@ void st7701_lcd::enable_dsi_phy_power() {
 }
 
 void st7701_lcd::init_backlight() {
-    gpio_config_t bk_gpio_config = {
-        .pin_bit_mask = 1ULL << PIN_NUM_BK_LIGHT,
-        .mode = GPIO_MODE_OUTPUT,
-    };
-    ESP_ERROR_CHECK(gpio_config(&bk_gpio_config));
+    if (!ledcAttach(PIN_NUM_BK_LIGHT, BK_LEDC_FREQ_HZ, BK_LEDC_RES_BITS)) {
+        ESP_LOGE(TAG, "backlight PWM attach failed");
+    }
 }
 
-void st7701_lcd::set_backlight(uint32_t level) {
-    gpio_set_level(PIN_NUM_BK_LIGHT, level);
+// Last brightness applied through lcd_set_brightness(), so st7701_backlight()
+// can restore it after charging mode turned the panel fully off.
+static uint8_t s_brightness = DEVICE_PREFS_BRIGHTNESS_DEFAULT;
+
+static void bk_write_pct(uint8_t percent) {
+    const uint32_t max_duty = (1u << BK_LEDC_RES_BITS) - 1u;
+    ledcWrite(PIN_NUM_BK_LIGHT, ((uint32_t)percent * max_duty) / 100u);
+}
+
+void lcd_set_brightness(uint8_t percent) {
+    s_brightness = device_prefs_clamp_brightness(percent);
+    bk_write_pct(s_brightness);
 }
 
 void st7701_backlight(bool on) {
-    gpio_set_level(PIN_NUM_BK_LIGHT, on ? LCD_BK_LIGHT_ON_LEVEL : !LCD_BK_LIGHT_ON_LEVEL);
+    // Zero duty is deliberately below the 10% clamp floor: charging mode wants
+    // the panel genuinely dark, and waking always relights it.
+    bk_write_pct(on ? s_brightness : 0);
 }
 
 void st7701_lcd::begin() {
@@ -93,7 +107,7 @@ void st7701_lcd::begin() {
     ESP_ERROR_CHECK(esp_lcd_panel_reset(s_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(s_panel_handle));
 
-    set_backlight(LCD_BK_LIGHT_ON_LEVEL);
+    lcd_set_brightness(DEVICE_PREFS_BRIGHTNESS_DEFAULT);
 }
 
 void st7701_lcd::lcd_draw_bitmap(uint16_t x_start, uint16_t y_start, uint16_t x_end, uint16_t y_end,

@@ -40,7 +40,7 @@ static const char* CLASS_JSON =
 
 // Opens `date` and marks the listed ids present, then closes.
 static void mark_day(const char* date, const char* const* present, int n) {
-    attendance_open(CLASS_DIR, date);
+    attendance_open(CLASS_DIR, date, 0);
     for (int i = 0; i < n; i++) attendance_set(present[i], true);
     attendance_close();
 }
@@ -132,7 +132,7 @@ static void test_overwrite_replaces_not_appends(void) {
 static void test_export_preserves_open_session(void) {
     const class_rec_t* cls = setup_data();
     // A roll call is in progress on a fresh date.
-    attendance_open(CLASS_DIR, "2026-02-01");
+    attendance_open(CLASS_DIR, "2026-02-01", 0);
     attendance_set("202500002", true);
 
     export_write_csv(cls, nullptr, nullptr);  // opens historical dates internally

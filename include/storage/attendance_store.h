@@ -21,8 +21,10 @@
 
 // Opens the session for class_dir + date, folding any existing file into
 // memory (a missing file is a fresh, empty session). Replaces any open
-// session. Returns false only on a read error.
-bool attendance_open(const char* class_dir, const char* date);
+// session. `now_us` is the current monotonic timestamp (esp_timer_get_time),
+// used to resume any persisted timed arrivals — see the timed section below.
+// Returns false only on a read error.
+bool attendance_open(const char* class_dir, const char* date, long long now_us);
 
 bool attendance_is_open(void);
 const char* attendance_dir(void);   // "" when no session is open
@@ -45,9 +47,17 @@ bool attendance_set(const char* student_id, bool present);
 // presence is registered, further taps are ignored (ATT_ALREADY_PRESENT).
 //
 // Elapsed time comes from a monotonic clock (esp_timer_get_time), so it works
-// without an RTC. The "tapped in, not confirmed" state lives in RAM only — a
-// reboot voids it. Registered results are written to the same JSONL with an
-// extra "min" field:
+// without an RTC. The arrival itself is persisted: the first tap appends a
+// checkpoint record to the same JSONL, and attendance_checkpoint() (plus any
+// too-early tap) refreshes it with the minutes waited so far:
+//   {"id":"2023-0142","present":false,"min":30,"tapin":true}
+// On attendance_open() a trailing tapin record restores the arrival as
+// in-progress, credited with its checkpointed minutes — so a power failure
+// (or closing and reopening the session) resumes the wait instead of voiding
+// it. Time past the last checkpoint is not counted (the monotonic clock does
+// not survive a reboot), which errs on making the student wait, never on
+// crediting time not proven. Registered results are written with "min" and no
+// "tapin" flag, superseding the arrival on fold:
 //   {"id":"2023-0142","present":true,"min":52}
 
 typedef enum {
@@ -63,19 +73,24 @@ typedef struct {
     int minutes;    // elapsed so far (IN_PROGRESS/TOO_EARLY) or measured (PRESENT/ALREADY_PRESENT)
     int remaining;  // whole minutes left before a tap can register (IN_PROGRESS/TOO_EARLY; else 0)
     // False only when this call tried to append and the write failed — i.e. the
-    // student reads as present in RAM but nothing reached the card. The UI MUST
-    // surface that: a green "Presence registered" over a failed write is how a
-    // whole session goes missing without anyone noticing. States that write
-    // nothing (IN_PROGRESS, TOO_EARLY, ALREADY_PRESENT, ABSENT) report true.
+    // state is right in RAM but nothing reached the card. The UI MUST surface
+    // that: a green "Presence registered" over a failed write is how a whole
+    // session goes missing without anyone noticing. Two states write and can
+    // report false: PRESENT (the registration itself) and IN_PROGRESS (the
+    // arrival record — the tap works for this session but would not survive a
+    // power failure). TOO_EARLY's checkpoint refresh is best-effort (an earlier
+    // checkpoint still stands), so it reports true, as do the states that write
+    // nothing (ALREADY_PRESENT, ABSENT).
     bool saved;
 } att_state_t;
 
 // Handles a timed tap for a student in the open session. The first tap records
-// the arrival (RAM only). A later tap registers the presence (writes
-// present+min) once the gap is >= threshold_min; before that it changes nothing
-// and returns ATT_TOO_EARLY with `remaining` set, and once registered it
-// returns ATT_ALREADY_PRESENT. `now_us` is a monotonic timestamp
-// (microseconds). Returns the resulting state.
+// the arrival (in RAM and as a tapin record on disk). A later tap registers the
+// presence (writes present+min) once the gap is >= threshold_min; before that
+// it refreshes the on-disk checkpoint, returns ATT_TOO_EARLY with `remaining`
+// set and does not register, and once registered it returns
+// ATT_ALREADY_PRESENT. `now_us` is a monotonic timestamp (microseconds).
+// Returns the resulting state.
 att_state_t attendance_tap(const char* student_id, long long now_us, int threshold_min);
 
 // The student's current timed state in the open session (for the roll call).
@@ -83,6 +98,14 @@ att_state_t attendance_tap(const char* student_id, long long now_us, int thresho
 // far and still to wait, per threshold_min) or ATT_PRESENT, never TOO_EARLY /
 // ALREADY_PRESENT.
 att_state_t attendance_tap_state(const char* student_id, long long now_us, int threshold_min);
+
+// Appends a checkpoint record for every in-progress arrival whose whole-minute
+// count advanced since its last one, so a power failure loses at most one
+// checkpoint interval of waiting (the device runs this every five minutes, from
+// ui/ui.cpp). The batch is a single file open/append/close, so the cost does
+// not scale with class size. Call from the LVGL thread (SD writes live there);
+// a no-op without an open session or pending arrivals. Returns records written.
+int attendance_checkpoint(long long now_us);
 
 // Ends the open session (clears memory; the log is already on disk).
 void attendance_close(void);

@@ -209,7 +209,6 @@ static void show_timed_result(const student_t* st, att_state_t s) {
     char sub[48];
     switch (s.status) {
         case ATT_PRESENT:
-            // The only state that writes, so the only one that can fail to save.
             // Amber, not green: the student must not walk away believing a tap
             // was recorded when nothing reached the card.
             if (!s.saved) {
@@ -238,6 +237,15 @@ static void show_timed_result(const student_t* st, att_state_t s) {
             break;
         case ATT_IN_PROGRESS:
         default:
+            // The arrival did not reach the card: it works for this session
+            // but would not survive a power failure.
+            if (!s.saved) {
+                bg = THEME_WARNING;
+                head = "Checked in (not saved)";
+                snprintf(sub, sizeof(sub), "tap again in %d min to confirm", s.remaining);
+                beeper_error();
+                break;
+            }
             bg = THEME_ACCENT;
             head = "Checked in";
             snprintf(sub, sizeof(sub), "tap again in %d min to confirm", s.remaining);

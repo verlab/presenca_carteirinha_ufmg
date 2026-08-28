@@ -1,7 +1,11 @@
 #include "ui/ui.h"
 
+#include <lvgl.h>
+
 #include "esp32-hal-log.h"
+#include "esp_timer.h"
 #include "audio/beeper.h"
+#include "storage/attendance_store.h"
 #include "ui/components/keyboard.h"
 #include "ui/components/status_bar.h"
 #include "ui/components/toast.h"
@@ -12,6 +16,7 @@
 #include "ui/screens/scr_class.h"
 #include "ui/screens/scr_class_stats.h"
 #include "ui/screens/scr_camera.h"
+#include "ui/screens/scr_charging.h"
 #include "ui/screens/scr_classes.h"
 #include "ui/screens/scr_export.h"
 #include "ui/screens/scr_idle.h"
@@ -26,6 +31,14 @@ static const char* UI_TAG = "ui";
 static ui_card_cb_t s_card_capture = nullptr;
 
 void ui_set_card_capture(ui_card_cb_t cb) { s_card_capture = cb; }
+
+// Timed attendance: every five minutes, persist the progress of every
+// in-progress (tapped-in, unconfirmed) arrival so a power failure resumes the
+// wait from the last checkpoint instead of voiding it. Lives here rather than
+// on the class/kiosk screens because the session stays open across screens; it
+// is a no-op when nothing is in progress. LVGL timer == LVGL thread == SD is
+// safe. The whole batch is one file append (see attendance_checkpoint).
+static void att_checkpoint_cb(lv_timer_t*) { attendance_checkpoint(esp_timer_get_time()); }
 
 void ui_init(void) {
     theme_init();
@@ -45,7 +58,10 @@ void ui_init(void) {
     scr_mgr_register(SCREEN_WIFI_EDITOR, &scr_wifi_editor);
     scr_mgr_register(SCREEN_CAMERA, &scr_camera);
     scr_mgr_register(SCREEN_ABOUT, &scr_about);
+    scr_mgr_register(SCREEN_CHARGING, &scr_charging);
     scr_mgr_show(SCREEN_IDLE, nullptr);
+
+    lv_timer_create(att_checkpoint_cb, 5 * 60 * 1000, nullptr);
 }
 
 void ui_handle_event(const app_event_t* ev) {

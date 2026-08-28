@@ -25,7 +25,7 @@ static void read_file(const char* path, char* buf, size_t cap) {
 
 static void test_fresh_session_is_empty(void) {
     mocksd_reset();
-    TEST_ASSERT_TRUE(attendance_open(DIR, "2026-07-16"));
+    TEST_ASSERT_TRUE(attendance_open(DIR, "2026-07-16", 0));
     TEST_ASSERT_TRUE(attendance_is_open());
     TEST_ASSERT_EQUAL_STRING("2026-07-16", attendance_date());
     TEST_ASSERT_EQUAL_STRING(DIR, attendance_dir());
@@ -34,7 +34,7 @@ static void test_fresh_session_is_empty(void) {
 
 static void test_mark_present_appends_and_updates(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-16");
+    attendance_open(DIR, "2026-07-16", 0);
     TEST_ASSERT_TRUE(attendance_set("2023-0142", true));
     TEST_ASSERT_TRUE(attendance_set("2023-0187", true));
     TEST_ASSERT_TRUE(attendance_is_present("2023-0142"));
@@ -51,7 +51,7 @@ static void test_mark_present_appends_and_updates(void) {
 
 static void test_toggle_off_is_last_write_wins(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-16");
+    attendance_open(DIR, "2026-07-16", 0);
     attendance_set("2023-0142", true);
     attendance_set("2023-0142", false);  // changed their mind
     TEST_ASSERT_FALSE(attendance_is_present("2023-0142"));
@@ -65,7 +65,7 @@ static void test_toggle_off_is_last_write_wins(void) {
 
 static void test_reopen_folds_persisted_state(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-16");
+    attendance_open(DIR, "2026-07-16", 0);
     attendance_set("2023-0142", true);
     attendance_set("2023-0187", true);
     attendance_set("2023-0187", false);
@@ -73,7 +73,7 @@ static void test_reopen_folds_persisted_state(void) {
     TEST_ASSERT_FALSE(attendance_is_open());
 
     // Reopening the same date reconstructs the present set from the log.
-    TEST_ASSERT_TRUE(attendance_open(DIR, "2026-07-16"));
+    TEST_ASSERT_TRUE(attendance_open(DIR, "2026-07-16", 0));
     TEST_ASSERT_TRUE(attendance_is_present("2023-0142"));
     TEST_ASSERT_FALSE(attendance_is_present("2023-0187"));
     TEST_ASSERT_EQUAL_INT(1, attendance_present_count());
@@ -81,9 +81,9 @@ static void test_reopen_folds_persisted_state(void) {
 
 static void test_sessions_are_separate_files(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-14");
+    attendance_open(DIR, "2026-07-14", 0);
     attendance_set("2023-0142", true);
-    attendance_open(DIR, "2026-07-16");  // different day, fresh
+    attendance_open(DIR, "2026-07-16", 0);  // different day, fresh
     TEST_ASSERT_EQUAL_INT(0, attendance_present_count());
     attendance_set("2023-0187", true);
 
@@ -94,11 +94,11 @@ static void test_sessions_are_separate_files(void) {
 static void test_list_dates_newest_first(void) {
     mocksd_reset();
     // Create three sessions out of order.
-    attendance_open(DIR, "2026-07-14");
+    attendance_open(DIR, "2026-07-14", 0);
     attendance_set("a", true);
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     attendance_set("a", true);
-    attendance_open(DIR, "2026-07-09");
+    attendance_open(DIR, "2026-07-09", 0);
     attendance_set("a", true);
     attendance_close();
 
@@ -114,12 +114,12 @@ static void test_list_dates_newest_first(void) {
 
 static void test_present_for_does_not_disturb_open_session(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-14");
+    attendance_open(DIR, "2026-07-14", 0);
     attendance_set("a", true);
     attendance_set("b", true);
     attendance_close();
 
-    attendance_open(DIR, "2026-07-16");  // current session
+    attendance_open(DIR, "2026-07-16", 0);  // current session
     attendance_set("c", true);
 
     // Querying a past date must not change the open session.
@@ -132,9 +132,9 @@ static void test_present_for_does_not_disturb_open_session(void) {
 
 static void test_clear_removes_all_sessions(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-14");
+    attendance_open(DIR, "2026-07-14", 0);
     attendance_set("a", true);
-    attendance_open(DIR, "2026-07-16");
+    attendance_open(DIR, "2026-07-16", 0);
     attendance_set("b", true);
     attendance_close();
     TEST_ASSERT_TRUE(mocksd_exists("/classes/CS101-M1/attendance/2026-07-14.jsonl"));
@@ -158,7 +158,7 @@ static const long long MIN_US = 60000000LL;  // one minute in microseconds
 
 static void test_timed_present_when_over_threshold(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
 
     // Tap in at t=0: in progress, not yet counted, whole threshold still to wait.
     att_state_t s = attendance_tap("2023-0142", 0, 45);
@@ -187,11 +187,11 @@ static void test_timed_present_when_over_threshold(void) {
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"present\":true"));
 }
 
-// A tap before the threshold changes nothing: no record, and the arrival stands
-// so the student can come back later and still be registered.
-static void test_timed_early_tap_is_not_recorded(void) {
+// A tap before the threshold does not register a presence: the arrival stands
+// (refreshed on disk as a checkpoint) so the student can come back later.
+static void test_timed_early_tap_does_not_register(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     attendance_tap("2023-0142", 0, 45);
     att_state_t s = attendance_tap("2023-0142", 12 * MIN_US, 45);  // 33 min too soon
     TEST_ASSERT_EQUAL_INT(ATT_TOO_EARLY, s.status);
@@ -199,8 +199,12 @@ static void test_timed_early_tap_is_not_recorded(void) {
     TEST_ASSERT_EQUAL_INT(33, s.remaining);
     TEST_ASSERT_FALSE(attendance_is_present("2023-0142"));
     TEST_ASSERT_EQUAL_INT(0, attendance_present_count());
-    // Nothing was written for the rejected tap.
-    TEST_ASSERT_FALSE(mocksd_exists("/classes/CS101-M1/attendance/2026-07-20.jsonl"));
+    // On disk: only arrival checkpoints so far, never a registered presence.
+    char buf[512];
+    read_file("/classes/CS101-M1/attendance/2026-07-20.jsonl", buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"tapin\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"min\":12"));
+    TEST_ASSERT_NULL(strstr(buf, "\"present\":true"));
 
     // The original arrival is still the reference: waiting it out registers.
     s = attendance_tap("2023-0142", 50 * MIN_US, 45);
@@ -213,7 +217,7 @@ static void test_timed_early_tap_is_not_recorded(void) {
 // while the threshold is not actually met.
 static void test_timed_remaining_rounds_up(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     attendance_tap("2023-0142", 0, 45);
     att_state_t s = attendance_tap("2023-0142", 44 * MIN_US + MIN_US / 2, 45);
     TEST_ASSERT_EQUAL_INT(ATT_TOO_EARLY, s.status);
@@ -224,7 +228,7 @@ static void test_timed_remaining_rounds_up(void) {
 // Once registered, further taps are ignored — reported, but never re-recorded.
 static void test_timed_extra_tap_after_present_is_ignored(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     attendance_tap("2023-0142", 0, 45);
     attendance_tap("2023-0142", 50 * MIN_US, 45);  // registered, 50 min
 
@@ -241,23 +245,32 @@ static void test_timed_extra_tap_after_present_is_ignored(void) {
     TEST_ASSERT_EQUAL_STRING(before, after);  // no extra line
 }
 
-static void test_timed_no_confirm_is_absent(void) {
+// Never confirming keeps the student out of the present set — but the arrival
+// itself is persisted, so a reopen (as after a power failure) resumes the wait
+// from the last checkpoint instead of voiding it.
+static void test_timed_no_confirm_is_absent_but_resumes(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     attendance_tap("2023-0142", 0, 45);  // in, never confirmed
     // Still in progress live...
     TEST_ASSERT_EQUAL_INT(ATT_IN_PROGRESS,
                           attendance_tap_state("2023-0142", 90 * MIN_US, 45).status);
-    // ...but not present, and a reopen (in-progress is RAM-only) shows absent.
+    // ...but not present.
     TEST_ASSERT_FALSE(attendance_is_present("2023-0142"));
-    attendance_open(DIR, "2026-07-20");
+    // Reopen with a rebooted clock: still not present, in progress again with
+    // the checkpointed credit (0 min here — no checkpoint ever ran), and the
+    // full threshold ahead. Uncheckpointed time is deliberately not credited.
+    attendance_open(DIR, "2026-07-20", 7 * MIN_US);
     TEST_ASSERT_EQUAL_INT(0, attendance_present_count());
-    TEST_ASSERT_EQUAL_INT(ATT_ABSENT, attendance_tap_state("2023-0142", 0, 45).status);
+    att_state_t s = attendance_tap_state("2023-0142", 7 * MIN_US, 45);
+    TEST_ASSERT_EQUAL_INT(ATT_IN_PROGRESS, s.status);
+    TEST_ASSERT_EQUAL_INT(0, s.minutes);
+    TEST_ASSERT_EQUAL_INT(45, s.remaining);
 }
 
 static void test_manual_override_clears_in_progress(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     attendance_tap("2023-0142", 0, 45);  // in progress
     TEST_ASSERT_TRUE(attendance_set("2023-0142", true));  // professor forces present
     TEST_ASSERT_TRUE(attendance_is_present("2023-0142"));
@@ -269,14 +282,81 @@ static void test_manual_override_clears_in_progress(void) {
 
 static void test_timed_present_survives_reopen(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     attendance_tap("2023-0142", 0, 45);
     attendance_tap("2023-0142", 50 * MIN_US, 45);  // present, 50 min
-    attendance_open(DIR, "2026-07-20");            // reopen folds the file
+    attendance_open(DIR, "2026-07-20", 0);         // reopen folds the file
     TEST_ASSERT_TRUE(attendance_is_present("2023-0142"));
     att_state_t s = attendance_tap_state("2023-0142", 0, 45);
     TEST_ASSERT_EQUAL_INT(ATT_PRESENT, s.status);
     TEST_ASSERT_EQUAL_INT(50, s.minutes);
+}
+
+// Power-failure resume: the periodic checkpoint persists progress, and a reopen
+// credits exactly the checkpointed minutes — the wait continues where it left
+// off instead of restarting from zero (or disappearing).
+static void test_timed_checkpoint_resumes_after_reopen(void) {
+    mocksd_reset();
+    TEST_ASSERT_EQUAL_INT(0, attendance_checkpoint(0));  // no session: no-op
+    attendance_open(DIR, "2026-07-20", 0);
+    attendance_tap("2023-0142", 0, 45);
+    attendance_tap("2023-0187", 0, 45);
+
+    // One line per arrival with progress; a re-run at the same minute writes
+    // nothing (no line per timer tick without movement).
+    TEST_ASSERT_EQUAL_INT(2, attendance_checkpoint(30 * MIN_US));
+    TEST_ASSERT_EQUAL_INT(0, attendance_checkpoint(30 * MIN_US));
+
+    // "Power failure": reopen with a fresh (rebooted, smaller) clock. The
+    // student resumes in progress with the 30 checkpointed minutes credited.
+    attendance_open(DIR, "2026-07-20", 5 * MIN_US);
+    att_state_t s = attendance_tap_state("2023-0142", 5 * MIN_US, 45);
+    TEST_ASSERT_EQUAL_INT(ATT_IN_PROGRESS, s.status);
+    TEST_ASSERT_EQUAL_INT(30, s.minutes);
+    TEST_ASSERT_EQUAL_INT(15, s.remaining);
+
+    // Waiting out the remaining 15 minutes registers with the full total.
+    s = attendance_tap("2023-0142", 20 * MIN_US, 45);
+    TEST_ASSERT_EQUAL_INT(ATT_PRESENT, s.status);
+    TEST_ASSERT_EQUAL_INT(45, s.minutes);
+    TEST_ASSERT_TRUE(s.saved);
+}
+
+// A too-early tap refreshes the on-disk checkpoint, so its progress survives a
+// reopen even without the periodic checkpoint running.
+static void test_timed_early_tap_checkpoint_survives(void) {
+    mocksd_reset();
+    attendance_open(DIR, "2026-07-20", 0);
+    attendance_tap("2023-0142", 0, 45);
+    attendance_tap("2023-0142", 20 * MIN_US, 45);  // too early; checkpoints 20
+    attendance_open(DIR, "2026-07-20", 0);         // reboot
+    att_state_t s = attendance_tap_state("2023-0142", 0, 45);
+    TEST_ASSERT_EQUAL_INT(ATT_IN_PROGRESS, s.status);
+    TEST_ASSERT_EQUAL_INT(20, s.minutes);
+    TEST_ASSERT_EQUAL_INT(25, s.remaining);
+}
+
+// A manual override lands after the arrival in the JSONL, so it supersedes the
+// checkpoint on disk exactly as it does in RAM.
+static void test_manual_override_supersedes_checkpoint_on_disk(void) {
+    mocksd_reset();
+    attendance_open(DIR, "2026-07-20", 0);
+    attendance_tap("2023-0142", 0, 45);
+    attendance_checkpoint(10 * MIN_US);
+    attendance_set("2023-0142", false);     // professor: not here
+    attendance_open(DIR, "2026-07-20", 0);  // reboot
+    TEST_ASSERT_EQUAL_INT(ATT_ABSENT, attendance_tap_state("2023-0142", 0, 45).status);
+    TEST_ASSERT_EQUAL_INT(0, attendance_present_count());
+}
+
+// Arrival checkpoints never count as presence in the history fold.
+static void test_checkpoints_do_not_count_in_history(void) {
+    mocksd_reset();
+    attendance_open(DIR, "2026-07-20", 0);
+    attendance_tap("2023-0142", 0, 45);
+    attendance_checkpoint(30 * MIN_US);
+    attendance_close();
+    TEST_ASSERT_EQUAL_INT(0, attendance_present_for(DIR, "2026-07-20"));
 }
 
 // --- history count cache ----------------------------------------------------
@@ -304,7 +384,7 @@ static void test_present_for_is_memoised(void) {
 // keep showing the pre-tap count.
 static void test_marking_present_invalidates_that_date(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     TEST_ASSERT_EQUAL_INT(0, attendance_present_for(DIR, "2026-07-20"));  // caches 0
     attendance_set("2023-0142", true);
     TEST_ASSERT_EQUAL_INT(1, attendance_present_for(DIR, "2026-07-20"));
@@ -316,9 +396,9 @@ static void test_marking_present_invalidates_that_date(void) {
 
 static void test_timed_tap_invalidates_that_date(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     TEST_ASSERT_EQUAL_INT(0, attendance_present_for(DIR, "2026-07-20"));  // caches 0
-    attendance_tap("2023-0142", 0, 45);                 // arrival: writes nothing
+    attendance_tap("2023-0142", 0, 45);  // arrival checkpoint: still 0 present
     TEST_ASSERT_EQUAL_INT(0, attendance_present_for(DIR, "2026-07-20"));
     attendance_tap("2023-0142", 50 * MIN_US, 45);       // confirms: appends
     TEST_ASSERT_EQUAL_INT(1, attendance_present_for(DIR, "2026-07-20"));
@@ -329,7 +409,7 @@ static void test_other_dates_stay_cached(void) {
     mocksd_reset();
     mocksd_add_file("/classes/CS101-M1/attendance/2026-07-19.jsonl",
                     "{\"id\":\"a\",\"present\":true}\n");
-    attendance_open(DIR, "2026-07-20");
+    attendance_open(DIR, "2026-07-20", 0);
     TEST_ASSERT_EQUAL_INT(1, attendance_present_for(DIR, "2026-07-19"));
 
     // Change the OTHER day on disk, then write to the open one.
@@ -389,7 +469,7 @@ static void test_more_dates_than_the_cache_holds(void) {
 
 static void test_set_reports_write_failure(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-25");
+    attendance_open(DIR, "2026-07-25", 0);
     mocksd_set_card_full(true);
 
     TEST_ASSERT_FALSE(attendance_set("2023-0142", true));
@@ -405,15 +485,16 @@ static void test_set_reports_write_failure(void) {
 
 static void test_timed_tap_reports_write_failure(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-26");
+    attendance_open(DIR, "2026-07-26", 0);
 
-    // Arrival writes nothing, so it succeeds even on a full card.
+    // The arrival record cannot reach the card: the tap still works for this
+    // session, but the caller is told it would not survive a power failure.
     mocksd_set_card_full(true);
     att_state_t s = attendance_tap("2023-0142", 0, 45);
     TEST_ASSERT_EQUAL_INT(ATT_IN_PROGRESS, s.status);
-    TEST_ASSERT_TRUE(s.saved);
+    TEST_ASSERT_FALSE(s.saved);
 
-    // The confirming tap is the one that appends — and it must report failure.
+    // The confirming tap appends the registration — it must report failure too.
     s = attendance_tap("2023-0142", 50 * MIN_US, 45);
     TEST_ASSERT_EQUAL_INT(ATT_PRESENT, s.status);
     TEST_ASSERT_EQUAL_INT(50, s.minutes);
@@ -430,7 +511,7 @@ static void test_timed_tap_reports_write_failure(void) {
 // on every normal check-in.
 static void test_timed_tap_reports_success_when_written(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-27");
+    attendance_open(DIR, "2026-07-27", 0);
     attendance_tap("2023-0142", 0, 45);
     att_state_t s = attendance_tap("2023-0142", 50 * MIN_US, 45);
     TEST_ASSERT_EQUAL_INT(ATT_PRESENT, s.status);
@@ -447,11 +528,11 @@ static void test_timed_tap_reports_success_when_written(void) {
 // crash and power-cycles it gets a half-wiped card.
 static void test_clear_reports_one_item_per_file(void) {
     mocksd_reset();
-    attendance_open(DIR, "2026-07-14");
+    attendance_open(DIR, "2026-07-14", 0);
     attendance_set("a", true);
-    attendance_open(DIR, "2026-07-16");
+    attendance_open(DIR, "2026-07-16", 0);
     attendance_set("b", true);
-    attendance_open(DIR, "2026-07-18");
+    attendance_open(DIR, "2026-07-18", 0);
     attendance_set("c", true);
     attendance_close();
 
@@ -484,12 +565,16 @@ int main(int, char**) {
     RUN_TEST(test_present_for_does_not_disturb_open_session);
     RUN_TEST(test_clear_removes_all_sessions);
     RUN_TEST(test_timed_present_when_over_threshold);
-    RUN_TEST(test_timed_early_tap_is_not_recorded);
+    RUN_TEST(test_timed_early_tap_does_not_register);
     RUN_TEST(test_timed_remaining_rounds_up);
     RUN_TEST(test_timed_extra_tap_after_present_is_ignored);
-    RUN_TEST(test_timed_no_confirm_is_absent);
+    RUN_TEST(test_timed_no_confirm_is_absent_but_resumes);
     RUN_TEST(test_manual_override_clears_in_progress);
     RUN_TEST(test_timed_present_survives_reopen);
+    RUN_TEST(test_timed_checkpoint_resumes_after_reopen);
+    RUN_TEST(test_timed_early_tap_checkpoint_survives);
+    RUN_TEST(test_manual_override_supersedes_checkpoint_on_disk);
+    RUN_TEST(test_checkpoints_do_not_count_in_history);
     RUN_TEST(test_present_for_is_memoised);
     RUN_TEST(test_marking_present_invalidates_that_date);
     RUN_TEST(test_timed_tap_invalidates_that_date);

@@ -19,3 +19,7 @@ void beeper_touch();
 
 // Distinct low double-beep signalling a problem / access denied.
 void beeper_error();
+
+// Rising two-tone chirp played right after beeper_init() at boot, so the
+// device signals life seconds before the display shows its first frame.
+void beeper_startup();

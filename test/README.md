@@ -21,7 +21,7 @@ native-only).
 
 ## Suites
 
-19 suites, 256 cases. This table is the only place those numbers are recorded —
+19 suites, 272 cases. This table is the only place those numbers are recorded —
 other docs link here rather than restating them.
 
 | Suite | Cases | Covers |
@@ -29,7 +29,7 @@ other docs link here rather than restating them.
 | `native/test_roster` | 40 | `students.json` / `class.json` validation and the exact on-screen error messages; enroll; clear-uids; card-id fingerprinting; authored-avatar index |
 | `native/test_auth_config` | 34 | `config.json` parsing, UID→teacher lookup, password write + length floor, statuses, blank-card bootstrap, credential conversion + idempotency |
 | `native/test_sd_tree` | 19 | recursive delete, in-place rename, whole-card wipe sparing `config.json`, wipe progress |
-| `native/test_attendance` | 26 | session JSONL fold, date listing, timed (arrival + confirm) taps, write-failure reporting, wipe progress |
+| `native/test_attendance` | 30 | session JSONL fold, date listing, timed (arrival + confirm) taps, arrival checkpoints + power-failure resume, write-failure reporting, wipe progress |
 | `native/test_ustar` | 14 | tar reading and the import path whitelist |
 | `native/test_atomic_file` | 12 | crash-safe file replacement: recovery from an interrupted write, full-card failure leaves the original |
 | `native/test_crypto` | 19 | SHA-256 / HMAC-SHA256 against FIPS 180-2 + RFC 4231 vectors; keyed UID and password fingerprints |

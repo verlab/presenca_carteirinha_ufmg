@@ -89,6 +89,7 @@ lazily; per-visit state belongs in `on_show`. Ids are in `include/ui/screen.h`.
 | `scr_admin` | Profile, SD usage, password, RFID, camera, debug, import | footer **Admin** |
 | `scr_camera` | Camera preview + face boxes + model diagnostics | Admin |
 | `scr_about` | Credits, version, repo QR | Admin |
+| `scr_charging` | Signs out and turns the backlight off for faster USB charging; touch or a card tap wakes to the idle gate | Admin **Power** card |
 
 Footer nav appears on Classes / Export / WiFi File Editor / Admin, and is
 disabled while the soft-AP is running so the AP cannot be left on by walking
@@ -128,11 +129,15 @@ Per class, from `class.json` (schema in [CONFIG_IMPORT.md](CONFIG_IMPORT.md)):
 
 - **Single tap** — one tap marks the student present.
 - **Double tap** (`timed_attendance`) — tap on arrival, tap again once
-  `min_attendance_min` has passed. A second tap *before* the threshold records
-  nothing and reports the minutes remaining, so the arrival still stands and the
-  student can come back. Once registered, further taps are ignored. Elapsed time
-  comes from the monotonic clock, so the in-progress state is RAM-only and a
-  reboot voids it.
+  `min_attendance_min` has passed. A second tap *before* the threshold does not
+  register and reports the minutes remaining, so the arrival still stands and
+  the student can come back. Once registered, further taps are ignored. Elapsed
+  time comes from the monotonic clock; the arrival is persisted to the session
+  JSONL as a `tapin` checkpoint (written on the first tap and refreshed every
+  five minutes by an LVGL timer in `ui/ui.cpp`), so reopening the session —
+  including after a power failure — resumes the wait from the last checkpoint
+  instead of voiding it. Schema in
+  [SD_CARD.md](SD_CARD.md#attendance-jsonl).
 - **Photo check-in** (`capture_photos`) — kiosk taps face-verify before
   registering; see [FACE_CHECKIN.md](FACE_CHECKIN.md).
 

@@ -74,12 +74,15 @@ void setup() {
     event_bus_init();
 
     i2c_bus_init();
+
+    // Beep path (ES8311 -> NS4150 -> CN1) comes up before the display so the
+    // startup chirp sounds seconds before the first frame — the only sign of
+    // life while the LCD, SD and UI still initialize. Optional: without the
+    // codec answering, every beep call is a no-op and boot stays silent.
+    if (beeper_init()) beeper_startup();
+
     lcd.begin();
     touch.begin();
-
-    // Confirmation beep path (ES8311 -> NS4150 -> CN1). Optional: without
-    // the codec answering, beeper_beep() is a no-op.
-    beeper_init();
 
     // Load /config.json and the student/class data before the UI so the
     // idle screen's first frame already reflects the real SD state.

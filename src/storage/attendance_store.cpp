@@ -33,10 +33,15 @@ static int s_present_min[MAX_PRESENT];
 static int s_present_count = 0;
 
 // Timed mode: students who tapped on arrival and have not yet confirmed (the
-// "tapin" naming predates the rework — there is no tap-out). RAM only, so a
-// reboot voids in-progress arrivals (no RTC; the monotonic clock resets).
+// "tapin" naming predates the rework — there is no tap-out). Arrivals are also
+// persisted to the JSONL as {"tapin":true,"min":N} checkpoint records, so a
+// power failure resumes the wait instead of voiding it: on fold the student is
+// credited `min` minutes (the monotonic clock resets across a reboot — no RTC —
+// so time past the last checkpoint is simply not counted). s_tapin_ckpt is the
+// last minute count written to disk, so checkpoints only append on progress.
 static char s_tapin_id[MAX_PRESENT][ID_LEN];
 static long long s_tapin_us[MAX_PRESENT];
+static int s_tapin_ckpt[MAX_PRESENT];
 static int s_tapin_count = 0;
 
 static void att_path(const char* dir, const char* date, char* out, size_t cap) {
@@ -82,13 +87,17 @@ static void tapin_remove(int f) {
     int last = --s_tapin_count;  // swap-remove
     snprintf(s_tapin_id[f], ID_LEN, "%s", s_tapin_id[last]);
     s_tapin_us[f] = s_tapin_us[last];
+    s_tapin_ckpt[f] = s_tapin_ckpt[last];
 }
 
-static void tapin_add(const char* id, long long us) {
+// `ckpt_min` is the minute count already on disk for this arrival (0 for a
+// fresh tap, the credited minutes for one restored by the fold).
+static void tapin_add(const char* id, long long us, int ckpt_min) {
     if (s_tapin_count >= MAX_PRESENT) return;
     int i = s_tapin_count++;
     snprintf(s_tapin_id[i], ID_LEN, "%s", id);
     s_tapin_us[i] = us;
+    s_tapin_ckpt[i] = ckpt_min;
 }
 
 // --- history count cache ----------------------------------------------------
@@ -202,10 +211,12 @@ static bool fold_file(const char* path, char set[][ID_LEN], int* count) {
     return true;
 }
 
-// Folds the open session's file into s_present / s_present_min (last record per
-// id wins, carrying its "min"). In-progress state is NOT persisted, so it starts
-// empty on (re)open.
-static bool fold_open(const char* path) {
+// Folds the open session's file into s_present / s_present_min and the tap-in
+// set (last record per id wins, carrying its "min"). A trailing tapin record
+// restores the arrival as in-progress, credited with the checkpointed minutes:
+// its reference timestamp is back-dated to `now_us - min`, so the countdown
+// resumes where the last checkpoint left it.
+static bool fold_open(const char* path, long long now_us) {
     s_present_count = 0;
     s_tapin_count = 0;
     if (!SD_MMC.exists(path)) return true;
@@ -229,14 +240,40 @@ static bool fold_open(const char* path) {
         const char* id = doc["id"] | "";
         bool present = doc["present"] | false;
         int minutes = doc["min"] | 0;
-        if (id[0]) present_set(id, present, minutes);
+        bool tapin = doc["tapin"] | false;
+        if (!id[0]) continue;
+        int t = tapin_find(id);
+        if (t >= 0) tapin_remove(t);  // any later record supersedes the arrival
+        if (tapin) {
+            present_set(id, false, 0);
+            tapin_add(id, now_us - (long long)minutes * MINUTE_US, minutes);
+        } else {
+            present_set(id, present, minutes);
+        }
     }
     free(buf);
     return true;
 }
 
-// Appends one JSONL record, optionally with the "min" field.
-static bool append_record(const char* id, bool present, int minutes, bool with_min) {
+// Formats one JSONL record, optionally with the "min" field. `tapin` marks an
+// arrival checkpoint (in progress, not a presence): {"present":false,
+// "min":N,"tapin":true}, where N is the minutes waited so far.
+static int format_record(char* line, size_t cap, const char* id, bool present, int minutes,
+                         bool with_min, bool tapin) {
+    if (tapin) {
+        return snprintf(line, cap, "{\"id\":\"%s\",\"present\":false,\"min\":%d,\"tapin\":true}\n",
+                        id, minutes);
+    }
+    if (with_min) {
+        return snprintf(line, cap, "{\"id\":\"%s\",\"present\":%s,\"min\":%d}\n", id,
+                        present ? "true" : "false", minutes);
+    }
+    return snprintf(line, cap, "{\"id\":\"%s\",\"present\":%s}\n", id, present ? "true" : "false");
+}
+
+// Ensures the attendance dir exists and opens the open session's file for
+// append (invalid File on failure, already logged).
+static File open_for_append(void) {
     char adir[64];
     snprintf(adir, sizeof(adir), "/classes/%s/attendance", s_dir);
     if (!SD_MMC.exists(adir)) SD_MMC.mkdir(adir);
@@ -244,19 +281,17 @@ static bool append_record(const char* id, bool present, int minutes, bool with_m
     char path[80];
     att_path(s_dir, s_date, path, sizeof(path));
     File f = SD_MMC.open(path, FILE_APPEND, true);
-    if (!f) {
-        ESP_LOGE(TAG, "append open failed: %s", path);
-        return false;
-    }
-    char line[80];
-    int len;
-    if (with_min) {
-        len = snprintf(line, sizeof(line), "{\"id\":\"%s\",\"present\":%s,\"min\":%d}\n", id,
-                       present ? "true" : "false", minutes);
-    } else {
-        len = snprintf(line, sizeof(line), "{\"id\":\"%s\",\"present\":%s}\n", id,
-                       present ? "true" : "false");
-    }
+    if (!f) ESP_LOGE(TAG, "append open failed: %s", path);
+    return f;
+}
+
+// Appends one JSONL record (see format_record for the shapes).
+static bool append_record(const char* id, bool present, int minutes, bool with_min,
+                          bool tapin = false) {
+    File f = open_for_append();
+    if (!f) return false;
+    char line[96];
+    int len = format_record(line, sizeof(line), id, present, minutes, with_min, tapin);
     size_t w = f.write((const uint8_t*)line, len);
     f.close();
     // The day's fold just changed; drop any memoised count for it.
@@ -266,7 +301,7 @@ static bool append_record(const char* id, bool present, int minutes, bool with_m
 
 // --- session ----------------------------------------------------------------
 
-bool attendance_open(const char* class_dir, const char* date) {
+bool attendance_open(const char* class_dir, const char* date, long long now_us) {
     attendance_close();
     snprintf(s_dir, sizeof(s_dir), "%s", class_dir);
     snprintf(s_date, sizeof(s_date), "%s", date);
@@ -274,9 +309,9 @@ bool attendance_open(const char* class_dir, const char* date) {
 
     char path[80];
     att_path(class_dir, date, path, sizeof(path));
-    bool ok = fold_open(path);
-    ESP_LOGI(TAG, "open %s %s: %d present%s", class_dir, date, s_present_count,
-             ok ? "" : " (read error)");
+    bool ok = fold_open(path, now_us);
+    ESP_LOGI(TAG, "open %s %s: %d present, %d in progress%s", class_dir, date, s_present_count,
+             s_tapin_count, ok ? "" : " (read error)");
     return ok;
 }
 
@@ -322,18 +357,26 @@ att_state_t attendance_tap(const char* id, long long now_us, int threshold_min) 
     }
 
     int t = tapin_find(id);
-    if (t < 0) {  // first tap: record arrival
-        tapin_add(id, now_us);
+    if (t < 0) {  // first tap: record arrival, in RAM and on disk
+        tapin_add(id, now_us, 0);
         r.status = ATT_IN_PROGRESS;
         r.remaining = remaining_min(0, threshold_min);
+        // The arrival record is what lets a power failure resume the wait
+        // instead of silently voiding it; an unsaved arrival still works for
+        // this session, but the caller must surface that it would not survive.
+        r.saved = append_record(id, false, 0, false, true);
         return r;
     }
 
     long long elapsed = tapin_elapsed(t, now_us);
     int minutes = (int)(elapsed / MINUTE_US);
     if (minutes < threshold_min) {
-        // Too soon: nothing is written and the arrival stands, so the student
-        // can tap again later and still be registered.
+        // Too soon to register — the arrival stands, so the student can tap
+        // again later. Refresh the on-disk checkpoint with the progress so far
+        // (best effort: on failure the previous checkpoint still stands).
+        if (minutes > s_tapin_ckpt[t] && append_record(id, false, minutes, false, true)) {
+            s_tapin_ckpt[t] = minutes;
+        }
         r.status = ATT_TOO_EARLY;
         r.minutes = minutes;
         r.remaining = remaining_min(elapsed, threshold_min);
@@ -368,6 +411,33 @@ att_state_t attendance_tap_state(const char* id, long long now_us, int threshold
         r.minutes = s_present_min[p];
     }
     return r;
+}
+
+int attendance_checkpoint(long long now_us) {
+    if (!s_open || s_tapin_count == 0) return 0;
+
+    // One open/write/close for the whole batch: this runs on the LVGL thread,
+    // and each per-record cycle costs a FatFs metadata round-trip — a full
+    // lecture hall mid-wait would turn per-record appends into a visible stall.
+    // The file is opened lazily so a tick where nobody advanced writes nothing.
+    File f;
+    int wrote = 0;
+    for (int i = 0; i < s_tapin_count; i++) {
+        int minutes = (int)(tapin_elapsed(i, now_us) / MINUTE_US);
+        if (minutes <= s_tapin_ckpt[i]) continue;  // no whole-minute progress
+        if (!f) {
+            f = open_for_append();
+            if (!f) return 0;
+        }
+        char line[96];
+        int len = format_record(line, sizeof(line), s_tapin_id[i], false, minutes, false, true);
+        if (f.write((const uint8_t*)line, len) != (size_t)len) continue;
+        s_tapin_ckpt[i] = minutes;
+        wrote++;
+    }
+    if (f) f.close();
+    if (wrote > 0) cache_drop(s_dir, s_date);
+    return wrote;
 }
 
 void attendance_close(void) {

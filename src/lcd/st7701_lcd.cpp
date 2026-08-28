@@ -54,6 +54,10 @@ void st7701_lcd::set_backlight(uint32_t level) {
     gpio_set_level(PIN_NUM_BK_LIGHT, level);
 }
 
+void st7701_backlight(bool on) {
+    gpio_set_level(PIN_NUM_BK_LIGHT, on ? LCD_BK_LIGHT_ON_LEVEL : !LCD_BK_LIGHT_ON_LEVEL);
+}
+
 void st7701_lcd::begin() {
     enable_dsi_phy_power();
     init_backlight();

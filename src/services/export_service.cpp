@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_timer.h"
+
 #include "services/roster_service.h"
 #include "storage/attendance_store.h"
 
@@ -63,7 +65,10 @@ SessionSnapshot snapshot_session(void) {
 
 void restore_session(const SessionSnapshot& s) {
     if (s.open) {
-        attendance_open(s.dir, s.date);
+        // Passing the real clock lets the fold resume any in-progress timed
+        // arrivals from their checkpoints, so an export mid-class no longer
+        // voids students who tapped in and are waiting out the threshold.
+        attendance_open(s.dir, s.date, esp_timer_get_time());
     } else {
         attendance_close();
     }
@@ -99,7 +104,10 @@ export_result_t export_write_csv(const class_rec_t* cls, progress_cb_t cb, void*
 
     SessionSnapshot saved = snapshot_session();
     for (int d = 0; d < days; d++) {
-        attendance_open(cls->dir, dates[d]);
+        // The clock only matters for resuming timed arrivals, which these
+        // historical folds discard again on the next open; the real time keeps
+        // the credit right if the exported date IS the open session's.
+        attendance_open(cls->dir, dates[d], esp_timer_get_time());
         for (int j = 0; j < total; j++) {
             const student_t* st = roster_student_at(cls->roster[j]);
             if (st && !attendance_is_present(st->id)) freq[j]++;

@@ -18,6 +18,7 @@ typedef enum : uint8_t {
     SCREEN_WIFI_EDITOR,   // debug WiFi soft-AP + web file manager
     SCREEN_CAMERA,        // camera preview + face detection
     SCREEN_ABOUT,         // project info, credits, version, repo QR
+    SCREEN_CHARGING,      // dark "screen off" mode for faster USB charging
     SCREEN_COUNT,
 } screen_id_t;
 

@@ -281,9 +281,8 @@ static void register_recognized(int idx) {
         char text[56];
         switch (s.status) {
             case ATT_PRESENT:
-                // Only ATT_PRESENT writes, so it is the only state that can come
-                // back unsaved. Same treatment as the single-tap path below: the
-                // student is marked in RAM, but say plainly it did not persist.
+                // Same treatment as the single-tap path below: the student is
+                // marked in RAM, but say plainly it did not persist.
                 if (!s.saved) {
                     color = THEME_WARNING;
                     icon = LV_SYMBOL_WARNING;
@@ -308,6 +307,16 @@ static void register_recognized(int idx) {
                 break;
             case ATT_IN_PROGRESS:
             default:
+                // An unsaved arrival still counts for this session, but it
+                // would not survive a power failure — warn, don't celebrate.
+                if (!s.saved) {
+                    color = THEME_WARNING;
+                    icon = LV_SYMBOL_WARNING;
+                    snprintf(text, sizeof(text), "Checked in (save failed) - %d min left",
+                             s.remaining);
+                    beeper_error();
+                    break;
+                }
                 snprintf(text, sizeof(text), "Checked in - tap again in %d min", s.remaining);
                 beeper_beep();
                 break;
@@ -735,7 +744,7 @@ static void cal_changed_cb(lv_event_t* e) {
 
 static void open_selected_cb(lv_event_t*) {
     if (!s_sel_date[0]) return;
-    attendance_open(s_cls->dir, s_sel_date);
+    attendance_open(s_cls->dir, s_sel_date, esp_timer_get_time());
     rebuild_content();  // -> open roll call
 }
 
@@ -743,7 +752,7 @@ static void open_selected_cb(lv_event_t*) {
 static void open_date_cb(lv_event_t* e) {
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (i < 0 || i >= s_dates_count) return;
-    attendance_open(s_cls->dir, s_dates[i]);
+    attendance_open(s_cls->dir, s_dates[i], esp_timer_get_time());
     go_view(VIEW_SESSION);  // a tapped history/recent date opens into the session
 }
 

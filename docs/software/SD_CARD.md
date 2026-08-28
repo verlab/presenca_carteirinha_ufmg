@@ -61,7 +61,16 @@ for timed (double-tap) classes and records the measured minutes:
 {"id":"2023-0142","present":true}
 {"id":"2023-0187","present":true,"min":52}
 {"id":"2023-0142","present":false}
+{"id":"2023-0233","present":false,"min":30,"tapin":true}
 ```
+
+`"tapin":true` marks a timed-mode arrival checkpoint: the student tapped in and
+is still waiting out the threshold, with `min` minutes elapsed at the time of
+writing (refreshed every five minutes, and on too-early taps). If it is the
+last line for a student when the session is opened, the arrival resumes with
+those minutes credited — that is what lets a power failure continue instead of
+losing the arrival. A later registration or manual override supersedes it, and
+`present` stays `false` so history counts never see a checkpoint as a presence.
 
 Append-only is deliberate: the device has no battery-backed shutdown, so a
 failed append loses at most the last tap, never the file.

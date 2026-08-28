@@ -318,6 +318,7 @@ static void build_rfid(void) {
 
 static void camera_preview_cb(lv_event_t*) { scr_mgr_show(SCREEN_CAMERA, nullptr); }
 static void about_cb(lv_event_t*) { scr_mgr_show(SCREEN_ABOUT, nullptr); }
+static void charging_cb(lv_event_t*) { scr_mgr_show(SCREEN_CHARGING, nullptr); }
 
 static void build_settings(void) {
     lv_obj_clean(s_settings);
@@ -741,6 +742,23 @@ static lv_obj_t* create(void) {
     // Extra breathing room between the camera-preview button and the password
     // section that follows it.
     lv_obj_set_style_margin_top(s_security, 16, 0);
+
+    // Power: charging mode. Static, built once - it navigates away, nothing to
+    // rebuild on show.
+    lv_obj_t* power_card = ui_make_card(sh.body);
+    lv_obj_set_flex_flow(power_card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(power_card, 8, 0);
+    ui_make_label(power_card, "Power", THEME_PRIMARY, &lv_font_montserrat_20);
+    lv_obj_t* chg_btn = ui_make_button(power_card, LV_SYMBOL_CHARGE "  Charging mode",
+                                       &theme_style_btn_outline, charging_cb, nullptr);
+    lv_obj_set_width(chg_btn, LV_PCT(100));
+    lv_obj_t* chg_cap = ui_make_label(
+        power_card,
+        "Signs you out and turns the screen off so most of the USB power goes into the "
+        "battery. Touch the screen to wake.",
+        THEME_MUTED, &lv_font_montserrat_14);
+    lv_label_set_long_mode(chg_cap, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(chg_cap, LV_PCT(100));
 
     // About: static content (credits/version), so it is built once here rather
     // than rebuilt on every show like the data-backed sections above.

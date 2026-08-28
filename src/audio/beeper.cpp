@@ -32,6 +32,7 @@ static const char* TAG = "beeper";
 typedef enum { BEEP_CONFIRM,
                BEEP_TOUCH,
                BEEP_ERROR,
+               BEEP_STARTUP,
                BEEP_COUNT } beep_type_t;
 
 // One tone segment: a sine at hz for ms, at amplitude amp (amp 0 = silence).
@@ -50,6 +51,9 @@ typedef struct {
 static const beep_burst_t CONFIRM_BURSTS[] = {{2000, 50, 0.10f}};
 static const beep_burst_t TOUCH_BURSTS[] = {{2700, 22, 0.16f}};
 static const beep_burst_t ERROR_BURSTS[] = {{1600, 90, 0.35f}, {0, 45, 0.0f}, {1100, 150, 0.35f}};
+// Startup: a rising two-tone chirp — the mirror image of the error's descending
+// pair, so "powering up" and "denied" can't be confused by ear.
+static const beep_burst_t STARTUP_BURSTS[] = {{1300, 60, 0.18f}, {0, 30, 0.0f}, {2000, 90, 0.18f}};
 
 typedef struct {
     int16_t* buf;  // stereo interleaved samples
@@ -145,6 +149,8 @@ static void build_all_tones() {
                sizeof(TOUCH_BURSTS) / sizeof(TOUCH_BURSTS[0]));
     build_tone(&s_tones[BEEP_ERROR], ERROR_BURSTS,
                sizeof(ERROR_BURSTS) / sizeof(ERROR_BURSTS[0]));
+    build_tone(&s_tones[BEEP_STARTUP], STARTUP_BURSTS,
+               sizeof(STARTUP_BURSTS) / sizeof(STARTUP_BURSTS[0]));
 }
 
 static void beeper_task(void*) {
@@ -222,3 +228,4 @@ bool beeper_init() {
 void beeper_beep() { queue_beep(BEEP_CONFIRM); }
 void beeper_touch() { queue_beep(BEEP_TOUCH); }
 void beeper_error() { queue_beep(BEEP_ERROR); }
+void beeper_startup() { queue_beep(BEEP_STARTUP); }

@@ -60,6 +60,9 @@ compile_commands.json
 *.bak
 *.swp
 
+# FreeCAD auto-backups
+*.FCBak
+
 # vcpkg
 vcpkg_installed/
 

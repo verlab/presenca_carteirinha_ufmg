@@ -23,6 +23,7 @@ public:
     explicit st7701_lcd(int8_t lcd_rst);
 
     // Powers the DSI PHY, initializes the panel, and turns the backlight on.
+    // (See also st7701_backlight() below for runtime on/off.)
     void begin();
 
     // Blits an RGB565 region to the panel. Coordinates are half-open:
@@ -43,5 +44,10 @@ private:
 
     int8_t _lcd_rst;
 };
+
+// Backlight on/off at runtime (plain GPIO on this board, no dimming). Free
+// function so UI code can drive it without holding the panel object — the
+// charging screen turns the light off and the wake path turns it back on.
+void st7701_backlight(bool on);
 
 #endif  // _ST7701_LCD_H

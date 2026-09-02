@@ -135,6 +135,9 @@ function normalize(m) {
     classes: (m.classes || []).map((c) => ({
       code: c.code || '', name: c.name || '', schedule: c.schedule || '',
       teacher_emails: classTeacherEmails(c), color: c.color || '272766',
+      sessions: Array.isArray(c.sessions)
+        ? c.sessions.map((w) => ({ weekday: w.weekday ?? 0, start: w.start || '', end: w.end || '' }))
+        : [],
       // Per-class attendance settings (contract §3.3). Absent in an older model
       // JSON means "never authored" — fall back to the contract defaults, which
       // are what the device would have used anyway.
@@ -718,7 +721,7 @@ function classesSection() {
     body,
     el('button', { class: 'add', text: '+ Add class', onclick: () => {
       model.classes.push({
-        code: '', name: '', schedule: '', teacher_emails: [], color: '272766',
+        code: '', name: '', schedule: '', teacher_emails: [], color: '272766', roster: [], sessions: [],
         capture_photos: false, timed_attendance: false,
         face_verify_seconds: DEFAULT_FACE_VERIFY_SECONDS,
         min_attendance_min: DEFAULT_MIN_ATTENDANCE_MIN,
@@ -778,8 +781,39 @@ function classCard(c, i) {
       el('label', { class: 'field' }, ['Professors', teacherBox]),
     ]),
     checkinField(c),
+    SessionsField(c),
     el('label', { class: 'field roster-field' },
       [`Roster (${c.roster.length}/${LIMITS.MAX_CLASS_ROSTER})`, roster]),
+  ]);
+}
+
+// class sessions
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function SessionsField(c) {
+  const list = Array.isArray(c.sessions) ? c.sessions : (c.sessions = []);
+  const rows = list.map((w, wi) => {
+    const wdSel = el('select', {}, WEEKDAY_LABELS.map((label, wd) =>
+      el('option', { value: wd, selected: wd === (w.weekday ?? 0) }, [label])));
+    wdSel.addEventListener('change', () => { w.weekday = Number(wdSel.value); });
+    const startInput = el('input', { type: 'time', value: w.start || '' });
+    startInput.addEventListener('input', () => { w.start = startInput.value; });
+    const endInput = el('input', { type: 'time', value: w.end || '' });
+    endInput.addEventListener('input', () => { w.end = endInput.value; });
+    return el('div', { class: 'session-row' }, [
+      wdSel, startInput, el('span', {}, ['\u2013']), endInput,
+      removeBtn('Remove window', () => { list.splice(wi, 1); render(); }),
+    ]);
+  });
+  return el('label', { class: 'field auto-sessions-field' }, [
+    `Class sessions (weekday/ start hour - end hour)`,
+    el('div', { class: 'session-rows' }, rows),
+    el('button', { class: 'add small', text: '+ Add window', onclick: () => {
+      if (list.length >= LIMITS.MAX_CLASS_SESSIONS) return;
+      list.push({ weekday: 1, start: '', end: '' });
+      render();
+    } }),
+    el('p', { class: 'hint', text: 'Opens this class\u2019s automatically' }),
   ]);
 }
 

@@ -14,6 +14,7 @@ typedef enum : uint8_t {
     APP_EVENT_POWER_STATE,   // payload: power
     APP_EVENT_CONFIG_STATE,  // payload: config
     APP_EVENT_ROSTER_STATE,  // payload: roster
+    APP_EVENT_SESSION_OPENED, 
 } app_event_type_t;
 
 typedef struct {
@@ -37,6 +38,9 @@ typedef struct {
         struct {
             uint8_t status;  // roster_status_t (see services/roster_service.h)
         } roster;
+        struct {
+            char class_dir[24]; 
+        } session;
     };
 } app_event_t;
 

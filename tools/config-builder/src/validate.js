@@ -50,6 +50,7 @@ export const LIMITS = {
   MIN_ATTENDANCE_MIN: 1,
   MIN_ATTENDANCE_MAX: 600,  // [builder-stricter] the device has no upper bound
   MIN_ATTENDANCE_DEFAULT: 45,
+  ROSTER_MAX_SESSIONS: 4,
 };
 
 // The check-in mode the UI offers, as the pair of device booleans it means.
@@ -72,6 +73,7 @@ export function checkinMode(cls) {
 
 const HEX6 = /^[0-9a-fA-F]{6}$/;
 const DIGITS = /^[0-9]+$/;
+const H_MIN = /^([01]\d|2[0-3]):([0-5]\d)$/;  
 
 export function validate(model) {
   const errors = [];
@@ -320,6 +322,25 @@ function validateClasses(classes, students, teachers, add) {
       }
       if (turma.length > LIMITS.ROSTER_TURMA)
         add('class', i, 'roster', `${who}: turma for ${sid} exceeds ${LIMITS.ROSTER_TURMA} characters`);
+    });
+
+    // class sessions: weekday is 0=sun..6=sat; start/end are HH:MM 24h. 
+    const sessions = Array.isArray(c.sessions) ? c.sessions : [];
+    if (sessions.length > LIMITS.MAX_CLASS_SESSIONS)
+      add('class', i, 'sessions',
+        `${who}: more than ${LIMITS.MAX_CLASS_SESSIONS} auto-session windows`);
+    sessions.forEach((w, wi) => {
+      const wd = Number(w.weekday);
+      const start = str(w.start);
+      const end = str(w.end);
+      if (!Number.isInteger(wd) || wd < 0 || wd > 6)
+        add('class', i, 'sessions', `${who}: window ${wi + 1} has an invalid weekday (0-6)`);
+      if (!H_MIN.test(start))
+        add('class', i, 'sessions', `${who}: window ${wi + 1} start must be HH:MM`);
+      if (!H_MIN.test(end))
+        add('class', i, 'sessions', `${who}: window ${wi + 1} end must be HH:MM`);
+      if (H_MIN.test(start) && H_MIN.test(end) && start >= end)
+        add('class', i, 'sessions', `${who}: window ${wi + 1} end must be after start`);
     });
   });
 }

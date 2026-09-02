@@ -22,6 +22,7 @@
 #include "ui/sd_resync.h"
 #include "ui/theme/theme.h"
 #include "ui/ui.h"
+#include "services/rtc_service.h"
 
 // FontAwesome glyph merged into the custom Montserrat font (see
 // src/ui/assets/), used as UTF-8.
@@ -783,10 +784,19 @@ static void add_date_row(lv_obj_t* parent, int i, bool show_pct) {
 
 static void build_session_closed(void) {
     s_dates_count = attendance_list_dates(s_cls->dir, s_dates, MAX_DATES);
-
-    // Placeholder = last session date, so the picker opens on the right month.
     int y = 2026, m = 1, d = 1;
-    if (s_dates_count > 0) sscanf(s_dates[0], "%d-%d-%d", &y, &m, &d);
+ 
+    // The calendar defaults to the current date, but if the class has any
+    // sessions already, preselect the most recent one. The professor can then  
+    // tap a different date if they want to open a new session.
+    if(set_rtc()){
+        rtc_time_t now = rtc_now();
+        y = now.year;
+        m = now.month;
+        d = now.day;
+    } else if (s_dates_count > 0){
+        sscanf(s_dates[0], "%d-%d-%d", &y, &m, &d);
+    }
     snprintf(s_sel_date, sizeof(s_sel_date), "%04d-%02d-%02d", y, m, d);
 
     lv_obj_t* card = ui_make_card(s_content);
@@ -795,7 +805,7 @@ static void build_session_closed(void) {
 
     ui_make_label(card, "Open a session", THEME_PRIMARY, &lv_font_montserrat_20);
     lv_obj_t* hint = ui_make_label(
-        card, "Pick the class date (no clock on the device), then open the session.",
+        card, "Confirm the date, then open session",
         THEME_MUTED, &lv_font_montserrat_14);
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(hint, LV_PCT(100));

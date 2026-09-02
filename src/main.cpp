@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <lvgl.h>
-
+#include "services/session_service.h"
+#include "services/rtc_service.h"
 #include "app/event_bus.h"
 #include "app/version.h"
 #include "audio/beeper.h"
@@ -76,6 +77,7 @@ void setup() {
     event_bus_init();
 
     i2c_bus_init();
+    rtc_service_init();
 
     // Beep path (ES8311 -> NS4150 -> CN1) comes up before the display so the
     // startup chirp sounds seconds before the first frame — the only sign of
@@ -90,6 +92,8 @@ void setup() {
     // idle screen's first frame already reflects the real SD state.
     config_service_start();
     roster_service_start();
+
+    session_service_init();
 
     // Device-local brightness / beep volume (/settings.json). Applied after
     // the card is mounted so a missing file just keeps the hardware defaults.

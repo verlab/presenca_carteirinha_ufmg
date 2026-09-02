@@ -13,6 +13,7 @@
 #include "services/config_service.h"
 #include "services/import_service.h"
 #include "services/roster_service.h"
+#include "services/rtc_service.h"
 #include "storage/attendance_store.h"
 #include "storage/backup_store.h"
 #include "storage/device_prefs_store.h"
@@ -28,6 +29,8 @@
 #include "ui/ui.h"
 #include "ui/ui_state.h"
 
+static const char* TAG = "admin";
+
 // Profile identity labels, filled in on_show from the logged-in session.
 static lv_obj_t* s_name = nullptr;
 static lv_obj_t* s_email = nullptr;
@@ -40,6 +43,13 @@ static lv_obj_t* s_security = nullptr;  // password section
 static lv_obj_t* s_rfid = nullptr;      // professor RFID card section
 static lv_obj_t* s_settings = nullptr;  // device settings (photo capture)
 static lv_obj_t* s_debug = nullptr;     // debug tools section
+
+//rtc section: shows the current RTC time, and lets the user set it.
+static lv_obj_t* s_rtc = nullptr;
+static lv_obj_t* s_rtc_modal = nullptr;
+static lv_obj_t* s_rtc_date = nullptr;
+static lv_obj_t* s_rtc_time = nullptr;
+static lv_timer_t* s_rtc_timer = nullptr;
 
 // Debug wipe controls. Both buttons are destructive and hidden until the debug
 // toggle is on; the second one takes the whole card, not just the roster data.
@@ -69,6 +79,7 @@ static void build_security(void);
 static void build_rfid(void);
 static void build_storage(void);
 static void build_import(void);
+static void build_rtc(void);
 static void fill_profile(void);
 static void import_btn_cb(lv_event_t*);
 static void revert_btn_cb(lv_event_t*);
@@ -290,7 +301,6 @@ static void open_rfid_modal(void) {
 
     ui_set_card_capture(on_rfid_card);  // divert the next scan here
 }
-
 static void change_rfid_cb(lv_event_t*) { open_rfid_modal(); }
 
 static void build_rfid(void) {
@@ -316,6 +326,130 @@ static void build_rfid(void) {
                                    &theme_style_btn_primary, change_rfid_cb, nullptr);
     lv_obj_set_width(btn, LV_PCT(100));
 }
+
+// rtc
+static void close_rtc_modal(void) {
+    if (s_rtc_modal) {
+        lv_obj_delete(s_rtc_modal);
+        s_rtc_modal = nullptr;
+    }
+}
+
+static void rtc_cancel_cb(lv_event_t*) { close_rtc_modal(); }
+
+
+static bool leap_year(int y) { return (y % 4) == 0; }
+
+static int days_in_month(int y, int mo) {
+    static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (mo < 1 || mo > 12) return 0;
+    if (mo == 2 && leap_year(y)) return 29;
+    return days[mo - 1];
+}
+
+static bool valid_date_time(int y, int mo, int d, int h, int mi) {
+    return y >= 2024 && y <= 2099 && mo >= 1 && mo <= 12 && d >= 1 &&
+           d <= days_in_month(y, mo) && h >= 0 && h <= 23 && mi >= 0 && mi <= 59;
+}
+
+static bool parse_rtc_date(const char* ds, int* y, int* mo, int* d) {
+    if (strlen(ds) != 8) return false;
+
+    int a, b, c;
+    if (sscanf(ds, "%4d%2d%2d", &a, &b, &c) == 3 && valid_date_time(a, b, c, 0, 0)) {
+        *y = a;
+        *mo = b;
+        *d = c;
+        return true;
+    }
+
+    if (sscanf(ds, "%4d%2d%2d", &c, &b, &a) == 3 && valid_date_time(a, b, c, 0, 0)) {
+        *y = a;
+        *mo = b;
+        *d = c;
+        return true;
+    }
+    return false;
+}
+
+static void rtc_save_cb(lv_event_t*) {
+    const char* ds = s_rtc_date ? lv_textarea_get_text(s_rtc_date) : "";
+    const char* ts = s_rtc_time ? lv_textarea_get_text(s_rtc_time) : "";
+    int y, mo, d, h, mi;
+    if (!parse_rtc_date(ds, &y, &mo, &d) || strlen(ts) != 4 ||
+        sscanf(ts, "%2d%2d", &h, &mi) != 2 || !valid_date_time(y, mo, d, h, mi)) {
+        ui_toast_show("Invalid date/time", false);
+        return;
+    }
+
+    if (rtc_adjust(y, mo, d, h, mi, 0)) {
+        rtc_time_t chk = rtc_now();
+        ESP_LOGI(TAG, "rtc ajustado e confirmado: %04d-%02d-%02d %02d:%02d", chk.year, chk.month,
+                 chk.day, chk.hour, chk.minute);
+    } else {
+        ESP_LOGW(TAG, "rtc_adjust falhou");
+        ui_toast_show("Clock update failed. Check if the RTC is connected properly.", false);
+        return;
+    }
+
+    ui_toast_show("Clock updated", true);
+    close_rtc_modal();
+    build_rtc();
+}
+
+static void open_rtc_modal(void) {
+    if (s_rtc_modal) return;
+    lv_obj_t* card;
+    s_rtc_modal = ui_modal_create(s_root, 60, &card);
+    ui_modal_title(card, "Set Clock", THEME_PRIMARY);
+    ui_modal_body(card, "Digits only. Use the current date and time where you are.");
+
+    char ds[9] = "", ts[5] = "";
+    if (set_rtc()) {
+        rtc_time_t now = rtc_now();
+        snprintf(ds, sizeof(ds), "%04d%02d%02d", now.year, now.month, now.day);
+        snprintf(ts, sizeof(ts), "%02d%02d", now.hour, now.minute);
+    }
+
+    s_rtc_date = keyboard_make_textarea(card, "Date (YYYYMMDD)", 8, LV_KEYBOARD_MODE_NUMBER);
+    if (ds[0]) lv_textarea_set_text(s_rtc_date, ds);
+    s_rtc_time = keyboard_make_textarea(card, "Time (HHMM, 24h)", 4, LV_KEYBOARD_MODE_NUMBER);
+    if (ts[0]) lv_textarea_set_text(s_rtc_time, ts);
+
+    keyboard_show(s_rtc_date, LV_KEYBOARD_MODE_NUMBER);
+    ui_modal_actions(card, "Save", &theme_style_btn_primary, rtc_save_cb, rtc_cancel_cb);
+}
+
+static void change_rtc_cb(lv_event_t*) { open_rtc_modal(); }
+
+static void build_rtc(void) {
+    ESP_LOGI(TAG, "build_rtc: rtc_is_set=%d", set_rtc());
+    lv_obj_clean(s_rtc);
+    lv_obj_t* card = ui_make_card(s_rtc);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(card, 8, 0);
+    ui_make_label(card, "RTC", THEME_PRIMARY, &lv_font_montserrat_20);
+
+    char line[48];
+    if (set_rtc()) {
+        rtc_time_t now = rtc_now();
+        snprintf(line, sizeof(line), "%04d-%02d-%02d  %02d:%02d", now.year, now.month, now.day,
+                 now.hour, now.minute);
+        ui_make_label(card, line, THEME_SUCCESS, &lv_font_montserrat_14);
+    } else {
+        ui_make_label(card, "Not set.",
+                      THEME_DANGER, &lv_font_montserrat_14);
+    }
+
+    lv_obj_t* btn = ui_make_button(card, set_rtc() ? "Adjust RTC" : "Set RTC",
+                                   &theme_style_btn_primary, change_rtc_cb, nullptr);
+    lv_obj_set_width(btn, LV_PCT(100));
+}
+
+static void rtc_timer_cb(lv_timer_t*) {
+    if (s_rtc && !s_rtc_modal) build_rtc();
+}
+
 
 // --- device settings --------------------------------------------------------
 
@@ -823,6 +957,7 @@ static lv_obj_t* create(void) {
     s_rfid = make_section(sh.body);
     s_import = make_section(sh.body);
     s_debug = make_section(sh.body);
+    s_rtc = make_section(sh.body);
     // Extra breathing room between the camera-preview button and the password
     // section that follows it.
     lv_obj_set_style_margin_top(s_security, 16, 0);
@@ -866,6 +1001,8 @@ static void on_show(void*) {
     build_import();
     build_settings();
     build_debug();
+    build_rtc();
+    if (!s_rtc_timer) s_rtc_timer = lv_timer_create(rtc_timer_cb, 1000, nullptr);
 }
 
 static void on_hide(void) {
@@ -879,6 +1016,11 @@ static void on_hide(void) {
     // layer AND wedges its own opener (which returns early on a live pointer).
     close_card_wipe_confirm();
     ui_progress_close();  // this one lives on layer_top and would block every screen
+    close_rtc_modal();
+    if (s_rtc_timer) {
+        lv_timer_delete(s_rtc_timer);
+        s_rtc_timer = nullptr;
+    }
 }
 
 const screen_t scr_admin = {

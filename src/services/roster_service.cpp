@@ -305,6 +305,29 @@ static roster_status_t load_one_class(const char* root, const char* dname) {
                      sizeof(c->teacher_emails[0]), "%s", em);
             c->teacher_count++;
         }
+    
+    c->session_count = 0;
+    JsonArray sessions = doc["sessions"].as<JsonArray>();
+    if (!sessions.isNull()) {
+        for(JsonVariant sv : sessions){
+            if(c->session_count >= ROSTER_MAX_SESSIONS) break;
+            int wd = sv["weekday"] | -1;
+            const char* start = sv["start"] | "";
+            const char* end = sv["end"] | "";
+            int start_h, start_m, end_h, end_m;
+
+            if( wd < 0 || wd > 6) continue;
+            if(sscanf(start, "%d:%d", &start_h, &start_m) != 2) continue;
+            if(sscanf(end, "%d:%d", &end_h, &end_m) != 2) continue;
+            
+            session_t* w = &c->sessions[c->session_count++];
+            w->weekday = (int8_t)wd;
+            w->start_min = (int16_t)(start_h * 60 + start_m);
+            w->end_min = (int16_t)(end_h * 60 + end_m);
+            }
+        }
+
+        
     } else {
         const char* legacy = doc["teacher_email"] | "";
         if (legacy[0]) {

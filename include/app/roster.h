@@ -18,6 +18,10 @@ constexpr int ROSTER_MAX_CLASS_STUDENTS = 250;
 // config-builder's schema-sync test asserts the two stay equal.
 constexpr int ROSTER_MAX_CLASS_TEACHERS = 8;
 
+// A class can have many sessions per week. 
+constexpr int ROSTER_MAX_SESSIONS = 4;
+
+
 // Face-verify countdown bounds (seconds) for a class's photo check-in.
 constexpr int FACE_VERIFY_SECONDS_MIN = 3;
 constexpr int FACE_VERIFY_SECONDS_MAX = 60;
@@ -53,6 +57,12 @@ typedef struct {
 } student_t;
 
 typedef struct {
+    int8_t weekday; // 0 = sunday, 1 = monday, ..., 6 = saturday
+    int16_t start_min; 
+    int16_t end_min;
+} session_t;
+
+typedef struct {
     char code[24];           // e.g. "CS101-M1"
     char dir[24];            // /classes/<dir>/ folder name (usually == code)
     char name[48];
@@ -80,6 +90,10 @@ typedef struct {
     // ({"id","turma"}). Parallel to roster[]: roster_turma[i] is the group of the
     // student at roster[i] IN THIS CLASS (empty when untagged). Attendance is
     // still by student index; turma is display/statistics only.
+    
+    session_t sessions[ROSTER_MAX_SESSIONS];
+    int8_t session_count;
+
     int16_t roster[ROSTER_MAX_CLASS_STUDENTS];   // indexes into the registry
     char roster_turma[ROSTER_MAX_CLASS_STUDENTS][16];
     int roster_count;

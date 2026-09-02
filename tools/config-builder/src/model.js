@@ -106,7 +106,7 @@ export function buildStudents(model) {
 
 export function buildClass(cls) {
   return {
-    version: 1,
+    version: 1, 
     code: cls.code ?? '',
     name: cls.name ?? '',
     schedule: cls.schedule ?? '',
@@ -130,6 +130,12 @@ export function buildClass(cls) {
       const turma = typeof r === 'string' ? '' : (r.turma ?? '');
       return turma ? { id, turma } : { id };
     }),
+
+    sessions: (cls.sessions ||[]).map((w) => ({
+      weekday: Number.isInteger(Number(w.weekday)) ? Number(w.weekday) : 0,
+      start: w.start ?? '',
+      end: w.end ?? '',
+    })),
   };
 }
 

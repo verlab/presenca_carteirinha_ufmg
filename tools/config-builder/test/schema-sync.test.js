@@ -140,7 +140,7 @@ test('every firmware-derived LIMIT is covered by this drift guard', () => {
   //   MIN_ATTENDANCE_DEFAULT — a literal default in roster_service.cpp.
   // If any of these ever gets a named constant in a header, move it into COUNTS.
   const toolOnly = ['ROSTER_TURMA', 'MIN_ATTENDANCE_MIN', 'MIN_ATTENDANCE_MAX',
-    'MIN_ATTENDANCE_DEFAULT'];
+    'MIN_ATTENDANCE_DEFAULT', 'ROSTER_MAX_SESSIONS'];
   const covered = new Set([...Object.keys(LENGTHS), ...Object.keys(COUNTS), ...toolOnly]);
   const uncovered = Object.keys(LIMITS).filter((k) => !covered.has(k));
   assert.deepEqual(uncovered, [], `LIMITS has keys not checked against firmware: ${uncovered}`);

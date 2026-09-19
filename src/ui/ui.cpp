@@ -25,6 +25,7 @@
 #include "ui/screens/scr_students.h"
 #include "ui/theme/theme.h"
 #include "ui/ui_state.h"
+#include "services/idle_service.h"
 
 static const char* UI_TAG = "ui";
 
@@ -67,6 +68,8 @@ void ui_init(void) {
 void ui_handle_event(const app_event_t* ev) {
     switch (ev->type) {
         case APP_EVENT_CARD_SCANNED: {
+            activity_detected();
+            
             char uid_hex[32];
             app_event_uid_to_hex(ev->card.uid, ev->card.uid_len, uid_hex, sizeof(uid_hex));
             // A flow waiting to read a card (e.g. enroll) takes priority.

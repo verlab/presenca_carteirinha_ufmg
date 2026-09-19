@@ -136,6 +136,8 @@ export function buildClass(cls) {
       start: w.start ?? '',
       end: w.end ?? '',
     })),
+    semester_start: cls.semester_start ?? '',
+    semester_end: cls.semester_end ?? '',
   };
 }
 

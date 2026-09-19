@@ -89,6 +89,7 @@ const COUNTS = {
   FACE_VERIFY_SECONDS_MIN: constInt(rosterH, 'FACE_VERIFY_SECONDS_MIN'),
   FACE_VERIFY_SECONDS_MAX: constInt(rosterH, 'FACE_VERIFY_SECONDS_MAX'),
   FACE_VERIFY_SECONDS_DEFAULT: constInt(rosterH, 'FACE_VERIFY_SECONDS_DEFAULT'),
+  MAX_CLASS_SESSIONS: constInt(rosterH, 'ROSTER_MAX_SESSIONS')
 };
 
 // The builder shows its own build id in the header, and APP_VERSION there is

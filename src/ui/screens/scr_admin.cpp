@@ -28,6 +28,7 @@
 #include "ui/theme/theme.h"
 #include "ui/ui.h"
 #include "ui/ui_state.h"
+#include "services/idle_service.h"
 
 static const char* TAG = "admin";
 
@@ -506,6 +507,7 @@ static void brightness_changed_cb(lv_event_t* e) {
     uint8_t pct = (uint8_t)lv_slider_get_value(slider);
     s_prefs.brightness = device_prefs_clamp_brightness(pct);
     lcd_set_brightness(s_prefs.brightness);
+    idle_setbrightness(s_prefs.brightness);
     set_pct_label((lv_obj_t*)lv_event_get_user_data(e), s_prefs.brightness);
 }
 

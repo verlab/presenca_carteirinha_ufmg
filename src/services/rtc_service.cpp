@@ -29,8 +29,6 @@ static DateTime rtc_cached_now(void) {
 }
 
 bool rtc_service_init(void) {
-    ESP_LOGI(TAG, "beginning rtc_service_init()");
-
     s_present = s_rtc.begin(&Wire1);
     if (!s_present) {
         ESP_LOGW(TAG, "clock is not working");

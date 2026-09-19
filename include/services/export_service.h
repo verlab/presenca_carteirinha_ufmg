@@ -56,3 +56,7 @@ bool export_exists(const class_rec_t* cls);
 // this slow, since every date is a whole-file read. A class with a full year of
 // sessions is 366 of them, and the export screen runs this once per ticked class.
 export_result_t export_write_csv(const class_rec_t* cls, progress_cb_t cb, void* ctx);
+
+// Fills freq[] with how many recorded session days each student enrolled in
+// class (cls) was absent.
+bool export_compute_freq(const class_rec_t* cls, int* freq);

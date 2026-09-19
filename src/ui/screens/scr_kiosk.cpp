@@ -25,6 +25,7 @@
 #include "ui/screens/scr_class.h"
 #include "ui/theme/theme.h"
 #include "ui/ui.h"
+#include "services/absence_service.h"
 
 // Custom font carries the FontAwesome id-card glyph (see src/ui/assets/).
 LV_FONT_DECLARE(font_montserrat_custom_32);
@@ -180,10 +181,19 @@ static void show_success(const student_t* st, bool already, bool saved) {
                 : already              ? "Already checked in"
                                        : "Checked in",
                 &lv_font_montserrat_32);
+    
     kiosk_label(p, st->name, &lv_font_montserrat_32);
     char line[64];
     snprintf(line, sizeof(line), "ID %s", st->id);
     kiosk_label(p, line, &lv_font_montserrat_20);
+    
+    int limit = 0;
+    int freq = get_absence_service(s_cls, st->id, &limit);
+    char freqline[32];
+    if (limit > 0) snprintf(freqline, sizeof(freqline), "FALTAS: %d/%d", freq, limit);
+    else snprintf(freqline, sizeof(freqline), "FALTAS: %d", freq);
+    kiosk_label(p, freqline, &lv_font_montserrat_20);
+
     kiosk_label(p, saved ? attendance_date() : "Tell your professor",
                 &lv_font_montserrat_20);
     s_timer = lv_timer_create(result_timer_cb, RESULT_MS, nullptr);
@@ -257,6 +267,14 @@ static void show_timed_result(const student_t* st, att_state_t s) {
     kiosk_label(p, head, &lv_font_montserrat_32);
     kiosk_label(p, st->name, &lv_font_montserrat_32);
     kiosk_label(p, sub, &lv_font_montserrat_20);
+
+    int limit = 0;
+    int freq = get_absence_service(s_cls, st->id, &limit);
+    char freqline[32];
+    if (limit > 0) snprintf(freqline, sizeof(freqline), "FREQ: %d/%d", freq, limit);
+    else snprintf(freqline, sizeof(freqline), "FREQ: %d", freq);
+    kiosk_label(p, freqline, &lv_font_montserrat_20);
+    
     s_timer = lv_timer_create(result_timer_cb, RESULT_MS, nullptr);
 }
 

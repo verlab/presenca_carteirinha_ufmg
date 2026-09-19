@@ -21,6 +21,7 @@
 #include "services/config_service.h"
 #include "storage/atomic_file.h"
 #include "storage/sd_card.h"
+#include "app/semester_calendar.h"
 
 static const char* TAG = "roster";
 
@@ -326,6 +327,10 @@ static roster_status_t load_one_class(const char* root, const char* dname) {
             w->end_min = (int16_t)(end_h * 60 + end_m);
             }
         }
+
+    const char* semester_start = doc["semester_start"] | "";
+    const char* semester_end = doc["semester_end"] | "";
+    c->total_classes = classes_persemester(semester_start, semester_end, c->schedule, c->sessions, c->session_count);
 
         
     } else {

@@ -138,6 +138,9 @@ function normalize(m) {
       sessions: Array.isArray(c.sessions)
         ? c.sessions.map((w) => ({ weekday: w.weekday ?? 0, start: w.start || '', end: w.end || '' }))
         : [],
+
+        semester_start: c.semester_start ?? '',
+        semester_end: c.semester_end ?? '',
       // Per-class attendance settings (contract §3.3). Absent in an older model
       // JSON means "never authored" — fall back to the contract defaults, which
       // are what the device would have used anyway.
@@ -721,7 +724,7 @@ function classesSection() {
     body,
     el('button', { class: 'add', text: '+ Add class', onclick: () => {
       model.classes.push({
-        code: '', name: '', schedule: '', teacher_emails: [], color: '272766', roster: [], sessions: [],
+        code: '', name: '', schedule: '', teacher_emails: [], color: '272766', roster: [], sessions: [], semester_start: '', semester_end: '',
         capture_photos: false, timed_attendance: false,
         face_verify_seconds: DEFAULT_FACE_VERIFY_SECONDS,
         min_attendance_min: DEFAULT_MIN_ATTENDANCE_MIN,
@@ -782,6 +785,7 @@ function classCard(c, i) {
     ]),
     checkinField(c),
     SessionsField(c),
+    semesterField(c),
     el('label', { class: 'field roster-field' },
       [`Roster (${c.roster.length}/${LIMITS.MAX_CLASS_ROSTER})`, roster]),
   ]);
@@ -814,6 +818,20 @@ function SessionsField(c) {
       render();
     } }),
     el('p', { class: 'hint', text: 'Opens this class\u2019s automatically' }),
+  ]);
+}
+
+function semesterField(c){
+  const startInput = el('input', {type: 'date', value: c.semester_start || ''});
+  startInput.addEventListener('input', () => { c.semester_start = startInput.value; });
+
+  const endInput = el('input', {type: 'date', value: c.semester_end || ''});
+  endInput.addEventListener('input', () => { c.semester_end = endInput.value; });
+
+  return el('label', {class : 'field semester-field'}, [
+    'Semester end and start dates',
+    el('div', {class: 'semester-row'}, [startInput, el('span', {}, ['\u2013']), endInput]),
+    el('p', {class: 'hint', text: 'It is used to show the absence limit'})
   ]);
 }
 

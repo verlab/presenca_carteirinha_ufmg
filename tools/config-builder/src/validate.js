@@ -51,6 +51,7 @@ export const LIMITS = {
   MIN_ATTENDANCE_MAX: 600,  // [builder-stricter] the device has no upper bound
   MIN_ATTENDANCE_DEFAULT: 45,
   ROSTER_MAX_SESSIONS: 4,
+  MAX_CLASS_SESSIONS: 4,
 };
 
 // The check-in mode the UI offers, as the pair of device booleans it means.
@@ -74,6 +75,7 @@ export function checkinMode(cls) {
 const HEX6 = /^[0-9a-fA-F]{6}$/;
 const DIGITS = /^[0-9]+$/;
 const H_MIN = /^([01]\d|2[0-3]):([0-5]\d)$/;  
+const YMD = /^\d{4}-\d{2}-\d{2}$/; 
 
 export function validate(model) {
   const errors = [];
@@ -342,5 +344,18 @@ function validateClasses(classes, students, teachers, add) {
       if (H_MIN.test(start) && H_MIN.test(end) && start >= end)
         add('class', i, 'sessions', `${who}: window ${wi + 1} end must be after start`);
     });
+
+    const semester_start = str(c.semester_start);
+    const semester_end = str(c.semester_end);
+
+    if (semester_start && !YMD.test(semester_start)){
+      add('class', i, 'semester_start', `${who}: semester_start must be YYYY-MM-DD`);
+    }
+    if (semester_end && !YMD.test(semester_end)){
+      add('class', i, 'semester_end', `${who}: semester_end must be YYYY-MM-DD`);
+    }
+    if (semester_start && semester_end && YMD.test(semester_start) && YMD.test(semester_end) && semester_start > semester_end){
+      add('class', i, 'semester_end', `${who}: semester_end must be after semester_start`);
+    }
   });
 }

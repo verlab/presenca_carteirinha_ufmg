@@ -94,9 +94,10 @@ export_result_t export_write_csv(const class_rec_t* cls, progress_cb_t cb, void*
     // FREQ = absent days per student. Fold every date once (dates outer,
     // students inner), counting a student absent whenever they aren't present.
     int total = cls->roster_count;
+
     int* freq = (int*)calloc(total > 0 ? total : 1, sizeof(int));
-    if (!freq) {
-        free(dates);
+    if (!freq || !export_compute_freq(cls, freq)) {
+        free(freq);
         r.path[0] = '\0';
         snprintf(r.message, sizeof(r.message), "Out of memory");
         return r;
@@ -161,4 +162,24 @@ export_result_t export_write_csv(const class_rec_t* cls, progress_cb_t cb, void*
     r.size_bytes = (uint32_t)written;
     snprintf(r.message, sizeof(r.message), "Exported");
     return r;
+}
+
+// fill the freq[] with the absences
+bool export_compute_freq(const class_rec_t* cls, int* freq) {
+    if (!cls || !freq) return false;
+    char(*dates)[12] = (char(*)[12])malloc(MAX_DAYS * 12);
+    if (!dates) return false;
+    int days = attendance_list_dates(cls->dir, dates, MAX_DAYS);
+    for (int j = 0; j < cls->roster_count; j++) freq[j] = 0;
+    SessionSnapshot saved = snapshot_session();
+    for (int d = 0; d < days; d++) {
+        attendance_open(cls->dir, dates[d], esp_timer_get_time());
+        for (int j = 0; j < cls->roster_count; j++) {
+            const student_t* st = roster_student_at(cls->roster[j]);
+            if (st && !attendance_is_present(st->id)) freq[j]++;
+        }
+    }
+    restore_session(saved);
+    free(dates);
+    return true;
 }

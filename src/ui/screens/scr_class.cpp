@@ -440,8 +440,8 @@ static void build_session_open(void) {
         lv_obj_t* search = ui_make_card(s_content);
         lv_obj_set_flex_flow(search, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(search, 8, 0);
-        s_roll_search_ta = keyboard_make_textarea(search, "Search by name or ID", 47,
-                                                  LV_KEYBOARD_MODE_TEXT_LOWER);
+        s_roll_search_ta = keyboard_make_textarea(search, "Search by ID", 47,
+                                                  LV_KEYBOARD_MODE_NUMBER);
         lv_obj_add_event_cb(s_roll_search_ta, roll_search_changed_cb, LV_EVENT_VALUE_CHANGED,
                             nullptr);
     }
@@ -1022,8 +1022,8 @@ static void build_enroll_search(void) {
     if (s_unregistered_only) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, toggle_cb, LV_EVENT_VALUE_CHANGED, nullptr);
 
-    s_search_ta = keyboard_make_textarea(card, "Search by name or ID", 47,
-                                         LV_KEYBOARD_MODE_TEXT_LOWER);
+    s_search_ta = keyboard_make_textarea(card, "Search by ID", 47,
+                                         LV_KEYBOARD_MODE_NUMBER);
     lv_obj_add_event_cb(s_search_ta, search_changed_cb, LV_EVENT_VALUE_CHANGED, nullptr);
 
     // This list is the class roster; the registry screen searches every student

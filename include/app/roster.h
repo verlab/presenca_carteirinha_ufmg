@@ -94,6 +94,8 @@ typedef struct {
     session_t sessions[ROSTER_MAX_SESSIONS];
     int8_t session_count;
 
+    int total_classes;
+    
     int16_t roster[ROSTER_MAX_CLASS_STUDENTS];   // indexes into the registry
     char roster_turma[ROSTER_MAX_CLASS_STUDENTS][16];
     int roster_count;

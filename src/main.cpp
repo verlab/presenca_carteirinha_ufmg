@@ -16,6 +16,7 @@
 #include "services/roster_service.h"
 #include "touch/gt911_touch.h"
 #include "ui/ui.h"
+#include "services/idle_service.h"
 #ifdef BATTERY_DRAIN_LOG
 #include "esp_timer.h"
 #include "storage/battery_log.h"
@@ -104,6 +105,8 @@ void setup() {
 
     lvgl_port_init(lcd, touch);
     ui_init();
+
+    idle_service_init();
 
     if (!rfid_service_start()) {
         Serial.println("RFID unavailable, continuing without it");

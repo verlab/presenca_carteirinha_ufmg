@@ -14,6 +14,7 @@
 #include "services/config_service.h"
 #include "services/rfid_service.h"
 #include "services/roster_service.h"
+#include "services/wifi_extern.h"
 #include "touch/gt911_touch.h"
 #include "ui/ui.h"
 #include "services/idle_service.h"
@@ -93,6 +94,7 @@ void setup() {
     // idle screen's first frame already reflects the real SD state.
     config_service_start();
     roster_service_start();
+    wifi_restore_saved();
 
     session_service_init();
 

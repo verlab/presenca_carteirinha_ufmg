@@ -8,6 +8,10 @@
 #include "ui/sd_resync.h"
 #include "ui/theme/theme.h"
 #include "ui/ui_state.h"
+#include "services/wifi_extern.h"
+#include "ui/components/keyboard.h"
+#include "WiFi.h"
+#include "ui/components/toast.h"
 
 static shell_t s_sh;
 static lv_obj_t* s_ssid_val = nullptr;
@@ -16,12 +20,19 @@ static lv_obj_t* s_btn = nullptr;
 static lv_obj_t* s_btn_label = nullptr;
 static lv_obj_t* s_status = nullptr;
 
+// extern wifi
+static lv_obj_t* s_wifi_name = nullptr;
+static lv_obj_t* s_wifi_pass = nullptr;
+static lv_obj_t* s_wifi_bnt = nullptr;
+static lv_obj_t* s_wifi_status = nullptr;
+static lv_timer_t* s_wifi_poll = nullptr;
+static uint8_t s_wifi_poll_ticks = 0;
+
 // Debug: keep the AP + file server up while the professor uses other screens.
 // Runtime-only and off at every boot — an unauthenticated file manager must
 // never come back on its own after a restart.
 static bool s_background = false;
-
-static void refresh_state(void);
+static void refresh_state(void);static void refresh_state(void);
 
 // Starts/stops the file server to match the AP state. The server runs on its
 // own task (see file_server.h), so nothing has to be pumped from here.
@@ -74,6 +85,54 @@ static void refresh_state(void) {
     sync_file_server(running);                               // serve the file manager while up
 }
 
+// check wifi connection status
+static void wifi_poll(lv_timer_t*){
+    if(wifi_is_connected()){
+        char ip[16];
+        wifi_ip(ip, sizeof(ip));
+        char msg[64];
+        snprintf(msg, sizeof(msg), LV_SYMBOL_OK " Connected: %s", ip);
+        lv_label_set_text(s_wifi_status, msg);
+        lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_SUCCESS), 0);
+        lv_timer_delete(s_wifi_poll);
+        s_wifi_poll = nullptr;
+    } else if (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL ||
+               ++s_wifi_poll_ticks >= 40) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), LV_SYMBOL_WARNING "  Connection failed (%d)",
+                 (int)WiFi.status());
+        lv_label_set_text(s_wifi_status, msg);
+        lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_DANGER), 0);
+        wifi_disconnect();
+        lv_timer_delete(s_wifi_poll);
+        s_wifi_poll = nullptr;
+    }
+
+}
+
+// connect with external wifi
+static void wifi_connect_cb(lv_event_t*){
+    const char* name = lv_textarea_get_text(s_wifi_name);
+    const char* password = lv_textarea_get_text(s_wifi_pass);
+    if (!name[0]) {
+        ui_toast_show("Digite o nome da rede", false);
+        return;
+    }
+
+    if (wifi_ap_is_running()) {
+        wifi_ap_stop();
+        refresh_state();
+    }
+
+    lv_label_set_text(s_wifi_status, LV_SYMBOL_WIFI "  Connecting...");
+    lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_MUTED), 0);
+    wifi_connect(name, password);
+
+    if (s_wifi_poll) lv_timer_delete(s_wifi_poll);
+    s_wifi_poll_ticks = 0;
+    s_wifi_poll = lv_timer_create(wifi_poll, 500, nullptr);
+}
+
 static void toggle_cb(lv_event_t*) {
     if (wifi_ap_is_running()) {
         wifi_ap_stop();
@@ -88,6 +147,8 @@ static void toggle_cb(lv_event_t*) {
     lv_label_set_text(s_status, LV_SYMBOL_WIFI "  Turning on WiFi...");
     lv_obj_set_style_text_color(s_status, lv_color_hex(THEME_MUTED), 0);
     lv_refr_now(NULL);
+
+     if (wifi_is_connected()) wifi_disconnect();
 
     if (!wifi_ap_start()) {
         lv_label_set_text(s_status, LV_SYMBOL_WARNING " Failed to start (WiFi companion available?)");
@@ -133,6 +194,33 @@ static lv_obj_t* create(void) {
     s_btn = ui_make_button(body, "", &theme_style_btn_primary, toggle_cb, nullptr);
     lv_obj_set_width(s_btn, LV_PCT(100));
     s_btn_label = lv_obj_get_child(s_btn, 0);
+
+    lv_obj_t* wifi_card = ui_make_card(body);
+    lv_obj_set_flex_flow(wifi_card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(wifi_card, 8, 0);
+    ui_make_label(wifi_card, "Connect to an external network", THEME_PRIMARY, &lv_font_montserrat_20);
+
+    s_wifi_name = keyboard_make_textarea(wifi_card, "Network name (SSID)", 32, LV_KEYBOARD_MODE_TEXT_LOWER);
+    s_wifi_pass = keyboard_make_textarea(wifi_card, "Password", 63, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_textarea_set_password_mode(s_wifi_pass, true);
+
+    lv_obj_t* show_btn = lv_button_create(wifi_card);
+    lv_obj_t* show_icon = lv_label_create(show_btn);
+    lv_label_set_text(show_icon, LV_SYMBOL_EYE_OPEN);
+    lv_obj_add_event_cb(show_btn, [](lv_event_t* e) {
+        lv_obj_t* btn = (lv_obj_t*)lv_event_get_target(e);
+        lv_obj_t* icon = lv_obj_get_child(btn, 0);
+        bool hidden = lv_textarea_get_password_mode(s_wifi_pass);
+        lv_textarea_set_password_mode(s_wifi_pass, !hidden);
+        lv_label_set_text(icon, hidden ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t* wifi_btn = ui_make_button(wifi_card, "Connect", &theme_style_btn_primary, wifi_connect_cb, nullptr);
+    lv_obj_set_width(wifi_btn, LV_PCT(100));
+
+    s_wifi_status = ui_make_label(wifi_card, "", THEME_MUTED, &lv_font_montserrat_14);
+    lv_label_set_long_mode(s_wifi_status, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_wifi_status, LV_PCT(100));
 
     // Debug option, off at every boot on purpose: the file manager has no
     // password, so the ability to walk away from it is never the default and

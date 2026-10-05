@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title> RELATÓRIO </title></head>
+<body>
+<h2 id="title">Carregando...</h2>
+<table border="1" id="tbl"></table>
+<script>
+const params = new URLSearchParams(location.search);
+const code = params.get('code');
+fetch(`https://sistema-presenca-ufmg-default-rtdb.firebaseio.com/reports/${code}.json`)
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('title').textContent = data.class_name + ' - ' + code;
+    let html = '<tr><th> Nome </th><th> Matricula </th><th> Faltas / Limite </th></tr>';
+    (data.students || []).forEach(s => {
+      html += `<tr><td>${s.name}</td><td>${s.id}</td><td>${s.freq}${data.limit ? '/' + data.limit : ''}</td></tr>`;
+    });
+    document.getElementById('tbl').innerHTML = html;
+  });
+</script>
+</body>
+</html>

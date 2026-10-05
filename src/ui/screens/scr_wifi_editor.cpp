@@ -27,12 +27,13 @@ static lv_obj_t* s_wifi_bnt = nullptr;
 static lv_obj_t* s_wifi_status = nullptr;
 static lv_timer_t* s_wifi_poll = nullptr;
 static uint8_t s_wifi_poll_ticks = 0;
+static bool s_wifi_manual_connect = false;
 
 // Debug: keep the AP + file server up while the professor uses other screens.
 // Runtime-only and off at every boot — an unauthenticated file manager must
 // never come back on its own after a restart.
 static bool s_background = false;
-static void refresh_state(void);static void refresh_state(void);
+static void refresh_state(void);
 
 // Starts/stops the file server to match the AP state. The server runs on its
 // own task (see file_server.h), so nothing has to be pumped from here.
@@ -85,29 +86,32 @@ static void refresh_state(void) {
     sync_file_server(running);                               // serve the file manager while up
 }
 
-// check wifi connection status
-static void wifi_poll(lv_timer_t*){
+static void wifi_poll(lv_timer_t*) {
     if(wifi_is_connected()){
         char ip[16];
         wifi_ip(ip, sizeof(ip));
         char msg[64];
-        snprintf(msg, sizeof(msg), LV_SYMBOL_OK " Connected: %s", ip);
+        snprintf(msg, sizeof(msg), LV_SYMBOL_OK " Connected to WiFi: %s", ip);
         lv_label_set_text(s_wifi_status, msg);
         lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_SUCCESS), 0);
-        lv_timer_delete(s_wifi_poll);
-        s_wifi_poll = nullptr;
-    } else if (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL ||
-               ++s_wifi_poll_ticks >= 40) {
+        s_wifi_manual_connect = false;
+    } else if (s_wifi_manual_connect &&
+               (WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL ||
+                ++s_wifi_poll_ticks >= 40)) {
         char msg[64];
         snprintf(msg, sizeof(msg), LV_SYMBOL_WARNING "  Connection failed (%d)",
                  (int)WiFi.status());
         lv_label_set_text(s_wifi_status, msg);
         lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_DANGER), 0);
         wifi_disconnect();
-        lv_timer_delete(s_wifi_poll);
-        s_wifi_poll = nullptr;
+        s_wifi_manual_connect = false;
+    } else if (s_wifi_manual_connect) {
+        lv_label_set_text(s_wifi_status, LV_SYMBOL_WIFI "  Connecting...");
+        lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_MUTED), 0);
+    } else {
+        lv_label_set_text(s_wifi_status, "Not connected to WiFi");
+        lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_MUTED), 0);
     }
-
 }
 
 // connect with external wifi
@@ -126,11 +130,9 @@ static void wifi_connect_cb(lv_event_t*){
 
     lv_label_set_text(s_wifi_status, LV_SYMBOL_WIFI "  Connecting...");
     lv_obj_set_style_text_color(s_wifi_status, lv_color_hex(THEME_MUTED), 0);
-    wifi_connect(name, password);
-
-    if (s_wifi_poll) lv_timer_delete(s_wifi_poll);
+    s_wifi_manual_connect = true;
     s_wifi_poll_ticks = 0;
-    s_wifi_poll = lv_timer_create(wifi_poll, 500, nullptr);
+    wifi_connect(name, password);
 }
 
 static void toggle_cb(lv_event_t*) {
@@ -260,10 +262,25 @@ static lv_obj_t* create(void) {
 
 static void on_show(void*) {
     char ssid[33], pass[16];
+    char saved_ssid[33], saved_pass[64];
     wifi_ap_credentials(ssid, sizeof(ssid), pass, sizeof(pass));
     lv_label_set_text(s_ssid_val, ssid);
     lv_label_set_text(s_pass_val, pass);
+    if (wifi_get_saved_credentials(saved_ssid, sizeof(saved_ssid), saved_pass,
+                                   sizeof(saved_pass))) {
+        lv_textarea_set_text(s_wifi_name, saved_ssid);
+        lv_textarea_set_text(s_wifi_pass, saved_pass);
+    }
     refresh_state();
+    wifi_poll(nullptr);
+    if (!s_wifi_poll) s_wifi_poll = lv_timer_create(wifi_poll, 500, nullptr);
+}
+
+static void on_hide(void) {
+    if (s_wifi_poll) {
+        lv_timer_delete(s_wifi_poll);
+        s_wifi_poll = nullptr;
+    }
 }
 
 bool scr_wifi_editor_stop_ap(void) {
@@ -283,5 +300,5 @@ bool scr_wifi_editor_stop_ap(void) {
 const screen_t scr_wifi_editor = {
     .create = create,
     .on_show = on_show,
-    .on_hide = nullptr,
+    .on_hide = on_hide,
 };

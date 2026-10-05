@@ -12,6 +12,8 @@
 #include "ui/components/toast.h"
 #include "ui/screen_manager.h"
 #include "ui/theme/theme.h"
+#include "services/report_service.h"
+#include "services/wifi_extern.h"
 
 static lv_obj_t* s_root = nullptr;
 static lv_obj_t* s_list = nullptr;        // class cards, rebuilt on_show
@@ -19,6 +21,7 @@ static lv_obj_t* s_export_btn = nullptr;  // "Export Selected (N)", below the li
 static lv_obj_t* s_select_all = nullptr;  // "Select all" / "Clear all" shortcut
 static lv_obj_t* s_status = nullptr;      // result / instruction message
 static lv_obj_t* s_confirm = nullptr;     // overwrite-all modal
+static lv_obj_t* s_qr_modal = nullptr;    // report QR modal
 
 // One checkbox per shown class, parallel to the class it selects.
 static lv_obj_t* s_checks[ROSTER_MAX_CLASSES];
@@ -182,6 +185,47 @@ static void export_cb(lv_event_t*) {
     }
 }
 
+// report site
+
+static void close_qr_modal(void) {
+    if (s_qr_modal) {
+        lv_obj_delete(s_qr_modal);
+        s_qr_modal = nullptr;
+    }
+}
+
+static void qr_cancel_cb(lv_event_t*) { close_qr_modal(); }
+
+static void qr_button_cb(lv_event_t* e){
+    const class_rec_t* cls = (const class_rec_t*)lv_event_get_user_data(e);
+
+    if(!wifi_is_connected()){
+        ui_toast_show("Connect to Wifi first", false);
+        return;
+    }
+
+    if(!report_upload(cls)){
+        ui_toast_show("Problem sending data", false);
+        return;
+    }
+
+    char url[96];
+    snprintf(url, sizeof(url), "https://sistema-presenca-ufmg.web.app/view.html?code=%s",
+             cls->code);
+
+    lv_obj_t* card;
+    s_qr_modal = ui_modal_create(s_root, 70, &card);
+    ui_modal_title(card, cls->name, THEME_PRIMARY);
+    lv_obj_t* qr = lv_qrcode_create(card);
+    lv_qrcode_set_size(qr, 200);
+    lv_qrcode_update(qr, url, strlen(url));
+    lv_obj_center(qr);
+
+    lv_obj_t* cancel = ui_make_button(card, "Cancel", &theme_style_btn_outline, qr_cancel_cb,
+                                      nullptr);
+    lv_obj_set_width(cancel, LV_PCT(100));
+}
+
 // --- class cards ------------------------------------------------------------
 
 static void add_class_card(const class_rec_t* cls) {
@@ -238,6 +282,9 @@ static void add_class_card(const class_rec_t* cls) {
         ui_make_label(card, LV_SYMBOL_WARNING "  Already exported", THEME_WARNING,
                       &lv_font_montserrat_14);
     }
+
+    lv_obj_t* qr_btn = ui_make_button(card, LV_SYMBOL_IMAGE "  REPORT QR CODE", &theme_style_btn_outline, qr_button_cb, (void*)cls);
+    lv_obj_set_width(qr_btn, LV_PCT(100));
 }
 
 static void add_notice(const char* title, const char* msg) {
@@ -327,6 +374,7 @@ static void on_show(void*) {
 
 static void on_hide(void) {
     close_confirm();
+    close_qr_modal();
     ui_progress_close();  // defensive: an orphan here blocks touch everywhere
 }
 

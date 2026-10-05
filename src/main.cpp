@@ -94,7 +94,8 @@ void setup() {
     // idle screen's first frame already reflects the real SD state.
     config_service_start();
     roster_service_start();
-    wifi_restore_saved();
+
+    wifi_restore();
 
     session_service_init();
 

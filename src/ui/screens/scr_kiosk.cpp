@@ -26,6 +26,7 @@
 #include "ui/theme/theme.h"
 #include "ui/ui.h"
 #include "services/absence_service.h"
+#include "services/rtc_service.h"
 
 // Custom font carries the FontAwesome id-card glyph (see src/ui/assets/).
 LV_FONT_DECLARE(font_montserrat_custom_32);
@@ -33,7 +34,7 @@ LV_FONT_DECLARE(font_montserrat_custom_32);
 
 static const char* TAG = "kiosk";
 
-static constexpr uint32_t RESULT_MS = 5000;     // how long the confirmation shows
+static constexpr uint32_t RESULT_MS = 2000;     // how long the confirmation shows
 static constexpr uint32_t KIOSK_BG = 0xFFE8CC;  // light orange
 
 static const class_rec_t* s_cls = nullptr;
@@ -187,11 +188,8 @@ static void show_success(const student_t* st, bool already, bool saved) {
     snprintf(line, sizeof(line), "ID %s", st->id);
     kiosk_label(p, line, &lv_font_montserrat_20);
     
-    int limit = 0;
-    int freq = get_absence_service(s_cls, st->id, &limit);
     char freqline[32];
-    if (limit > 0) snprintf(freqline, sizeof(freqline), "FALTAS: %d/%d", freq, limit);
-    else snprintf(freqline, sizeof(freqline), "FALTAS: %d", freq);
+    format_absence_line(freqline, sizeof(freqline), s_cls, st->id);
     kiosk_label(p, freqline, &lv_font_montserrat_20);
 
     kiosk_label(p, saved ? attendance_date() : "Tell your professor",
@@ -258,7 +256,11 @@ static void show_timed_result(const student_t* st, att_state_t s) {
             }
             bg = THEME_ACCENT;
             head = "Checked in";
-            snprintf(sub, sizeof(sub), "tap again in %d min to confirm", s.remaining);
+            if (s.remaining > 0) {
+                snprintf(sub, sizeof(sub), "tap again in %d min to confirm", s.remaining);
+            } else {
+                snprintf(sub, sizeof(sub), "tap again to confirm");
+            }
             beeper_beep();
             break;
     }
@@ -268,11 +270,8 @@ static void show_timed_result(const student_t* st, att_state_t s) {
     kiosk_label(p, st->name, &lv_font_montserrat_32);
     kiosk_label(p, sub, &lv_font_montserrat_20);
 
-    int limit = 0;
-    int freq = get_absence_service(s_cls, st->id, &limit);
     char freqline[32];
-    if (limit > 0) snprintf(freqline, sizeof(freqline), "FREQ: %d/%d", freq, limit);
-    else snprintf(freqline, sizeof(freqline), "FREQ: %d", freq);
+    format_absence_line(freqline, sizeof(freqline), s_cls, st->id);
     kiosk_label(p, freqline, &lv_font_montserrat_20);
     
     s_timer = lv_timer_create(result_timer_cb, RESULT_MS, nullptr);
@@ -284,7 +283,7 @@ static void show_timed_result(const student_t* st, att_state_t s) {
 static void kiosk_register(const student_t* st) {
     if (s_cls && s_cls->timed_attendance) {
         show_timed_result(st, attendance_tap(st->id, esp_timer_get_time(),
-                                             s_cls->min_attendance_min));
+                                             rtc_timed_threshold(s_cls->min_attendance_min)));
         return;
     }
     bool already = attendance_is_present(st->id);

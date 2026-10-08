@@ -22,6 +22,7 @@
 #include "ui/sd_resync.h"
 #include "ui/theme/theme.h"
 #include "ui/ui.h"
+#include "services/absence_service.h"
 #include "services/rtc_service.h"
 
 // FontAwesome glyph merged into the custom Montserrat font (see
@@ -63,7 +64,7 @@ static lv_calendar_date_t s_highlight;  // must outlive the calendar
 // narrow the search when it bites.
 static constexpr int ENROLL_MAX_ROWS = 15;
 static enroll_state_t s_enroll_state = ENROLL_SEARCH;
-static bool s_unregistered_only = true;  // toggle: only students without a card
+static bool s_unregistered_only = false;  // off: list everyone so a lost card can be replaced
 static lv_obj_t* s_search_ta = nullptr;
 static lv_obj_t* s_results = nullptr;
 static lv_obj_t* s_manual_id_ta = nullptr;
@@ -265,7 +266,13 @@ static void show_presence_feedback(const student_t* st, const char* turma, uint3
     snprintf(status, sizeof(status), "%s  %s", status_icon, status_text);
     ui_make_label(card, status, color, &lv_font_montserrat_20);
 
-    s_fb_timer = lv_timer_create(fb_timer_cb, 2600, nullptr);
+    if (st) {
+        char faltas[32];
+        format_absence_line(faltas, sizeof(faltas), s_cls, st->id);
+        ui_make_label(card, faltas, THEME_MUTED, &lv_font_montserrat_14);
+    }
+
+    s_fb_timer = lv_timer_create(fb_timer_cb, 2000, nullptr);
     lv_timer_set_repeat_count(s_fb_timer, 1);
 }
 
@@ -276,7 +283,8 @@ static void register_recognized(int idx) {
     if (!st) return;
     const char* turma = class_turma_for_student(idx);
     if (s_cls->timed_attendance) {
-        att_state_t s = attendance_tap(st->id, esp_timer_get_time(), s_cls->min_attendance_min);
+        att_state_t s = attendance_tap(st->id, esp_timer_get_time(),
+                                       rtc_timed_threshold(s_cls->min_attendance_min));
         uint32_t color = THEME_ACCENT;
         const char* icon = LV_SYMBOL_OK;
         char text[56];
@@ -313,12 +321,20 @@ static void register_recognized(int idx) {
                 if (!s.saved) {
                     color = THEME_WARNING;
                     icon = LV_SYMBOL_WARNING;
-                    snprintf(text, sizeof(text), "Checked in (save failed) - %d min left",
-                             s.remaining);
+                    if (s.remaining > 0) {
+                        snprintf(text, sizeof(text), "Checked in (save failed) - %d min left",
+                                 s.remaining);
+                    } else {
+                        snprintf(text, sizeof(text), "Checked in (save failed) - tap again");
+                    }
                     beeper_error();
                     break;
                 }
-                snprintf(text, sizeof(text), "Checked in - tap again in %d min", s.remaining);
+                if (s.remaining > 0) {
+                    snprintf(text, sizeof(text), "Checked in - tap again in %d min", s.remaining);
+                } else {
+                    snprintf(text, sizeof(text), "Checked in - tap again to confirm");
+                }
                 beeper_beep();
                 break;
         }
@@ -588,7 +604,7 @@ static void style_roll_chip(const roll_chip_t* c) {
     char sub[40] = "";
     if (s_cls->timed_attendance) {
         att_state_t s = attendance_tap_state(st->id, esp_timer_get_time(),
-                                             s_cls->min_attendance_min);
+                                             rtc_timed_threshold(s_cls->min_attendance_min));
         if (s.status == ATT_IN_PROGRESS) {
             bg = THEME_WARNING_SOFT;
             edge = THEME_WARNING;
@@ -929,8 +945,9 @@ static void update_results(void) {
         // a glance, so they read at the same size.
         ui_label_fit(ui_make_label(row, st->name, THEME_TEXT, &lv_font_montserrat_16));
         char sub[72];
-        snprintf(sub, sizeof(sub), "%s%s", st->id, st->rfid_uid[0] ? "   card registered" : "");
-        ui_label_fit(ui_make_label(row, sub, st->rfid_uid[0] ? THEME_SUCCESS : THEME_MUTED,
+        snprintf(sub, sizeof(sub), "%s%s", st->id,
+                 st->rfid_uid[0] ? "   tap to replace card" : "");
+        ui_label_fit(ui_make_label(row, sub, st->rfid_uid[0] ? THEME_WARNING : THEME_MUTED,
                                    &lv_font_montserrat_16));
         shown++;
     }
@@ -968,7 +985,7 @@ static void update_results(void) {
     if (q[0]) {
         why = "No matching student";
     } else if (s_unregistered_only) {
-        why = "Every student in this class already has a card. Turn off the filter to see them.";
+        why = "Every student already has a card. Turn off the filter to replace a lost one.";
     } else {
         why = "No students enrolled in this class yet.";
     }
@@ -1014,7 +1031,7 @@ static void build_enroll_search(void) {
     lv_obj_set_flex_align(trow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(trow, 10, 0);
-    lv_obj_t* tlabel = ui_make_label(trow, "Only students without a card", THEME_TEXT,
+    lv_obj_t* tlabel = ui_make_label(trow, "Hide students who already have a card", THEME_TEXT,
                                      &lv_font_montserrat_14);
     lv_obj_set_flex_grow(tlabel, 1);
     lv_label_set_long_mode(tlabel, LV_LABEL_LONG_WRAP);
@@ -1168,15 +1185,23 @@ static void build_enroll_wait(void) {
     lv_obj_set_style_pad_row(card, 12, 0);
     lv_obj_set_style_pad_ver(card, 20, 0);
 
+    bool replacing = false;
+    if (!s_sel_is_new) {
+        const student_t* st = roster_student_at(s_sel_idx);
+        replacing = st && st->rfid_uid[0];
+    }
+
     ui_make_label(card, LV_SYMBOL_SD_CARD, THEME_ACCENT, &lv_font_montserrat_32);
-    ui_make_label(card, "Tap the student's card", THEME_PRIMARY, &lv_font_montserrat_20);
+    ui_make_label(card, replacing ? "Tap the new card to replace" : "Tap the student's card",
+                  THEME_PRIMARY, &lv_font_montserrat_20);
     char who[80];
     snprintf(who, sizeof(who), "%s  (%s)", name, id);
     lv_obj_t* whol = ui_make_label(card, who, THEME_TEXT, &lv_font_montserrat_14);
     ui_label_fit(whol);
     lv_obj_set_style_text_align(whol, LV_TEXT_ALIGN_CENTER, 0);  // card centers its children
-    ui_make_label(card, "Hold the RFID card near the reader", THEME_MUTED,
-                  &lv_font_montserrat_14);
+    ui_make_label(card,
+                  replacing ? "The old card will stop working" : "Hold the RFID card near the reader",
+                  THEME_MUTED, &lv_font_montserrat_14);
 
     lv_obj_t* cancel = ui_make_button(card, "Cancel", &theme_style_btn_outline,
                                       wait_cancel_cb, nullptr);

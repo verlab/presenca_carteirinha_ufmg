@@ -9,6 +9,8 @@ static constexpr const char* WIFI_NAMESPACE = "wifi";
 static constexpr const char* WIFI_SSID = "ssid";
 static constexpr const char* WIFI_PASS= "pass";
 
+static void save_credentials(const char* name, const char* password);
+
 void wifi_connect(const char* name, const char* password){
     if (!name || !name[0]) return;
     save_credentials(name, password);

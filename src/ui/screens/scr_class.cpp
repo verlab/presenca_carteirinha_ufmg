@@ -22,6 +22,7 @@
 #include "ui/sd_resync.h"
 #include "ui/theme/theme.h"
 #include "ui/ui.h"
+#include "services/absence_service.h"
 #include "services/rtc_service.h"
 
 // FontAwesome glyph merged into the custom Montserrat font (see
@@ -63,7 +64,7 @@ static lv_calendar_date_t s_highlight;  // must outlive the calendar
 // narrow the search when it bites.
 static constexpr int ENROLL_MAX_ROWS = 15;
 static enroll_state_t s_enroll_state = ENROLL_SEARCH;
-static bool s_unregistered_only = true;  // toggle: only students without a card
+static bool s_unregistered_only = false;  // off: list everyone so a lost card can be replaced
 static lv_obj_t* s_search_ta = nullptr;
 static lv_obj_t* s_results = nullptr;
 static lv_obj_t* s_manual_id_ta = nullptr;
@@ -75,17 +76,22 @@ static char s_new_id[20];
 static char s_new_name[48];
 static char s_new_turma[16];  // optional class-group tag (class.json only)
 
-// Roll-call search (open-session view), shaped like the enroll one: every match
-// is counted, but at most ROLL_MAX_ROWS chips are built. A chip costs 5 objects
-// from the fixed LVGL pool, and the whole list used to be rebuilt on every card
-// tap and every name tap — which is what made a big class crawl. Only a search
-// rebuilds it now; a presence change restyles the one chip (see roll_chip_t).
+// Roll-call search (open-session view): every match is counted, but only one
+// page of ROLL_MAX_ROWS chips is built. A chip costs 5 objects from the fixed
+// LVGL pool; drawing a 250-student class at once would exhaust it (silent
+// freeze). Search and page-arrow rebuilds recreate the chips; a presence
+// change restyles the one chip (see roll_chip_t).
 static constexpr int ROLL_MAX_ROWS = 10;
+static int s_roll_page = 0;  // 0-based page of the current search
 static lv_obj_t* s_roll_search_ta = nullptr;
 static lv_obj_t* s_roll_scroll = nullptr;  // the view's only scroll container
 static lv_obj_t* s_roll_list = nullptr;    // holds only the chips; rebuilt alone
 static lv_obj_t* s_roll_count = nullptr;   // "N/M present" in the summary header
 static lv_obj_t* s_roll_bar = nullptr;     // present-progress bar
+static lv_obj_t* s_roll_pager = nullptr;   // pinned ← / range / →
+static lv_obj_t* s_roll_page_label = nullptr;
+static lv_obj_t* s_roll_prev = nullptr;
+static lv_obj_t* s_roll_next = nullptr;
 
 // The chips currently drawn, so a presence change can restyle ONE of them
 // instead of rebuilding the container. Rebuilding from the chip's own click
@@ -122,6 +128,7 @@ static void build_session(void);
 static void build_session_open(void);
 static void update_roll_call(void);
 static void refresh_roll_chip(int idx);
+static void update_roll_pager(int matched, int shown, int start);
 static void on_session_card(const char* uid_hex);
 static void build_hub(void);
 static void go_view(view_id_t v);
@@ -265,7 +272,13 @@ static void show_presence_feedback(const student_t* st, const char* turma, uint3
     snprintf(status, sizeof(status), "%s  %s", status_icon, status_text);
     ui_make_label(card, status, color, &lv_font_montserrat_20);
 
-    s_fb_timer = lv_timer_create(fb_timer_cb, 2600, nullptr);
+    if (st) {
+        char faltas[32];
+        format_absence_line(faltas, sizeof(faltas), s_cls, st->id);
+        ui_make_label(card, faltas, THEME_MUTED, &lv_font_montserrat_14);
+    }
+
+    s_fb_timer = lv_timer_create(fb_timer_cb, 2000, nullptr);
     lv_timer_set_repeat_count(s_fb_timer, 1);
 }
 
@@ -276,7 +289,8 @@ static void register_recognized(int idx) {
     if (!st) return;
     const char* turma = class_turma_for_student(idx);
     if (s_cls->timed_attendance) {
-        att_state_t s = attendance_tap(st->id, esp_timer_get_time(), s_cls->min_attendance_min);
+        att_state_t s = attendance_tap(st->id, esp_timer_get_time(),
+                                       rtc_timed_threshold(s_cls->min_attendance_min));
         uint32_t color = THEME_ACCENT;
         const char* icon = LV_SYMBOL_OK;
         char text[56];
@@ -313,12 +327,20 @@ static void register_recognized(int idx) {
                 if (!s.saved) {
                     color = THEME_WARNING;
                     icon = LV_SYMBOL_WARNING;
-                    snprintf(text, sizeof(text), "Checked in (save failed) - %d min left",
-                             s.remaining);
+                    if (s.remaining > 0) {
+                        snprintf(text, sizeof(text), "Checked in (save failed) - %d min left",
+                                 s.remaining);
+                    } else {
+                        snprintf(text, sizeof(text), "Checked in (save failed) - tap again");
+                    }
                     beeper_error();
                     break;
                 }
-                snprintf(text, sizeof(text), "Checked in - tap again in %d min", s.remaining);
+                if (s.remaining > 0) {
+                    snprintf(text, sizeof(text), "Checked in - tap again in %d min", s.remaining);
+                } else {
+                    snprintf(text, sizeof(text), "Checked in - tap again to confirm");
+                }
                 beeper_beep();
                 break;
         }
@@ -374,7 +396,41 @@ static void roll_toggle_cb(lv_event_t* e) {
     refresh_roll_chip(idx);
 }
 
-static void roll_search_changed_cb(lv_event_t*) { update_roll_call(); }
+static void roll_search_changed_cb(lv_event_t*) {
+    s_roll_page = 0;
+    update_roll_call();
+}
+
+static void roll_page_cb(lv_event_t* e) {
+    s_roll_page += (int)(intptr_t)lv_event_get_user_data(e);
+    update_roll_call();
+}
+
+static void set_page_btn(lv_obj_t* btn, bool on) {
+    if (!btn) return;
+    if (on) {
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(btn, LV_OPA_COVER, 0);
+    } else {
+        lv_obj_remove_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(btn, LV_OPA_40, 0);
+    }
+}
+
+// Compact arrow — not ui_make_button(): those are 72 px tall and would steal
+// the pinned strip from the chips.
+static lv_obj_t* make_page_arrow(lv_obj_t* parent, const char* symbol, int delta) {
+    lv_obj_t* btn = lv_button_create(parent);
+    lv_obj_remove_style_all(btn);
+    lv_obj_add_style(btn, &theme_style_btn_outline, 0);
+    lv_obj_set_size(btn, 56, 56);
+    ui_add_press_feedback(btn);
+    lv_obj_add_event_cb(btn, roll_page_cb, LV_EVENT_CLICKED, (void*)(intptr_t)delta);
+    lv_obj_t* label = lv_label_create(btn);
+    lv_label_set_text(label, symbol);
+    lv_obj_center(label);
+    return btn;
+}
 
 static void close_session_cb(lv_event_t*) {
     attendance_close();
@@ -433,9 +489,8 @@ static void build_session_open(void) {
     lv_obj_set_style_bg_color(bar, lv_color_hex(THEME_BORDER), LV_PART_MAIN);
     lv_obj_set_style_bg_color(bar, lv_color_hex(THEME_SUCCESS), LV_PART_INDICATOR);
 
-    // The search box: filtering is what keeps this view responsive on a large
-    // class, since only the matches are drawn. Pinned with the counts - it is
-    // how you reach a student in a 200-strong roster.
+    // The search box: filtering + paging keep this view responsive on a large
+    // class, since only one page of matches is drawn. Pinned with the counts.
     if (total > 0) {
         lv_obj_t* search = ui_make_card(s_content);
         lv_obj_set_flex_flow(search, LV_FLEX_FLOW_COLUMN);
@@ -444,6 +499,23 @@ static void build_session_open(void) {
                                                   LV_KEYBOARD_MODE_NUMBER);
         lv_obj_add_event_cb(s_roll_search_ta, roll_search_changed_cb, LV_EVENT_VALUE_CHANGED,
                             nullptr);
+
+        // Pinned with the search so the professor can page without scrolling
+        // past the chips. Hidden until the filtered list needs a second page.
+        s_roll_pager = lv_obj_create(s_content);
+        lv_obj_remove_style_all(s_roll_pager);
+        lv_obj_set_size(s_roll_pager, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(s_roll_pager, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(s_roll_pager, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(s_roll_pager, 10, 0);
+        lv_obj_remove_flag(s_roll_pager, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(s_roll_pager, LV_OBJ_FLAG_HIDDEN);
+        s_roll_prev = make_page_arrow(s_roll_pager, LV_SYMBOL_LEFT, -1);
+        s_roll_page_label = ui_make_label(s_roll_pager, "", THEME_MUTED, &lv_font_montserrat_14);
+        lv_obj_set_flex_grow(s_roll_page_label, 1);
+        lv_obj_set_style_text_align(s_roll_page_label, LV_TEXT_ALIGN_CENTER, 0);
+        s_roll_next = make_page_arrow(s_roll_pager, LV_SYMBOL_RIGHT, 1);
     }
 
     // The only scroll container on this view. Everything below here scrolls
@@ -588,7 +660,7 @@ static void style_roll_chip(const roll_chip_t* c) {
     char sub[40] = "";
     if (s_cls->timed_attendance) {
         att_state_t s = attendance_tap_state(st->id, esp_timer_get_time(),
-                                             s_cls->min_attendance_min);
+                                             rtc_timed_threshold(s_cls->min_attendance_min));
         if (s.status == ATT_IN_PROGRESS) {
             bg = THEME_WARNING_SOFT;
             edge = THEME_WARNING;
@@ -631,8 +703,26 @@ static void refresh_roll_chip(int idx) {
     }
 }
 
-// Rebuilds the roll-call chips: the set of them changed (a new search, or the
-// view being built). A tap goes through refresh_roll_chip() instead.
+static void update_roll_pager(int matched, int shown, int start) {
+    if (!s_roll_pager) return;
+    const bool need = matched > ROLL_MAX_ROWS;
+    if (!need) {
+        lv_obj_add_flag(s_roll_pager, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(s_roll_pager, LV_OBJ_FLAG_HIDDEN);
+    const int pages = (matched + ROLL_MAX_ROWS - 1) / ROLL_MAX_ROWS;
+    const int from = shown > 0 ? start + 1 : 0;
+    const int to = start + shown;
+    char txt[40];
+    snprintf(txt, sizeof(txt), "%d-%d of %d", from, to, matched);
+    if (s_roll_page_label) lv_label_set_text(s_roll_page_label, txt);
+    set_page_btn(s_roll_prev, s_roll_page > 0);
+    set_page_btn(s_roll_next, s_roll_page + 1 < pages);
+}
+
+// Rebuilds the roll-call chips: the set of them changed (a new search, a page
+// turn, or the view being built). A tap goes through refresh_roll_chip() instead.
 static void update_roll_call(void) {
     if (!s_roll_list) return;
     lv_obj_clean(s_roll_list);
@@ -648,16 +738,26 @@ static void update_roll_call(void) {
     for (int j = 0; j < total; j++) order[j] = s_cls->roster[j];
     qsort(order, total, sizeof(order[0]), roster_name_cmp);
 
-    int matched = 0;  // all matches
-    int shown = 0;    // chips actually built
+    int matches[ROSTER_MAX_CLASS_STUDENTS];
+    int matched = 0;
     for (int j = 0; j < total; j++) {
         int idx = order[j];
         const student_t* st = roster_student_at(idx);
         if (!st) continue;
         if (q[0] && !ui_text_contains(st->name, q) && !ui_text_contains(st->id, q)) continue;
-        matched++;
-        if (shown >= ROLL_MAX_ROWS) continue;  // counted, not drawn
-        shown++;
+        matches[matched++] = idx;
+    }
+
+    int pages = matched > 0 ? (matched + ROLL_MAX_ROWS - 1) / ROLL_MAX_ROWS : 1;
+    if (s_roll_page >= pages) s_roll_page = pages - 1;
+    if (s_roll_page < 0) s_roll_page = 0;
+    const int start = s_roll_page * ROLL_MAX_ROWS;
+    const int end = start + ROLL_MAX_ROWS < matched ? start + ROLL_MAX_ROWS : matched;
+
+    for (int i = start; i < end; i++) {
+        int idx = matches[i];
+        const student_t* st = roster_student_at(idx);
+        if (!st) continue;
 
         lv_obj_t* chip = ui_make_card(s_roll_list);
         lv_obj_set_flex_flow(chip, LV_FLEX_FLOW_ROW);
@@ -699,6 +799,9 @@ static void update_roll_call(void) {
         s_chip_count++;
     }
 
+    const int shown = s_chip_count;
+    update_roll_pager(matched, shown, start);
+
     if (matched == 0 && q[0]) {
         lv_obj_t* card = ui_make_card(s_roll_list);
         lv_obj_t* msg = ui_make_label(card, "No matching student in this class", THEME_MUTED,
@@ -708,24 +811,16 @@ static void update_roll_call(void) {
         return;
     }
 
-    // Say plainly when the list is cut short — a student missing from the roll
-    // call would otherwise look like they are not enrolled. Built last (that is
-    // where the counts are known) and moved above the chips.
-    bool truncated = matched > shown;
-    if (!truncated && !q[0]) return;  // full list, no query: the summary says it all
-    char head[96];
-    if (truncated) {
-        snprintf(head, sizeof(head), "Showing %d of %d - search to narrow the list", shown,
-                 matched);
-    } else {
+    if (q[0] && shown > 0) {
+        char head[40];
         snprintf(head, sizeof(head), "%d match%s", matched, matched == 1 ? "" : "es");
+        lv_obj_t* count = ui_make_label(s_roll_list, head, THEME_MUTED, &lv_font_montserrat_14);
+        lv_label_set_long_mode(count, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(count, LV_PCT(100));
+        lv_obj_move_to_index(count, 0);
     }
-    lv_obj_t* count = ui_make_label(s_roll_list, head, truncated ? THEME_WARNING : THEME_MUTED,
-                                    &lv_font_montserrat_14);
-    lv_label_set_long_mode(count, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(count, LV_PCT(100));
-    lv_obj_move_to_index(count, 0);
 
+    if (s_roll_list) lv_obj_scroll_to_view(s_roll_list, LV_ANIM_OFF);
     log_pool_peak(shown);
 }
 
@@ -929,8 +1024,9 @@ static void update_results(void) {
         // a glance, so they read at the same size.
         ui_label_fit(ui_make_label(row, st->name, THEME_TEXT, &lv_font_montserrat_16));
         char sub[72];
-        snprintf(sub, sizeof(sub), "%s%s", st->id, st->rfid_uid[0] ? "   card registered" : "");
-        ui_label_fit(ui_make_label(row, sub, st->rfid_uid[0] ? THEME_SUCCESS : THEME_MUTED,
+        snprintf(sub, sizeof(sub), "%s%s", st->id,
+                 st->rfid_uid[0] ? "   tap to replace card" : "");
+        ui_label_fit(ui_make_label(row, sub, st->rfid_uid[0] ? THEME_WARNING : THEME_MUTED,
                                    &lv_font_montserrat_16));
         shown++;
     }
@@ -968,7 +1064,7 @@ static void update_results(void) {
     if (q[0]) {
         why = "No matching student";
     } else if (s_unregistered_only) {
-        why = "Every student in this class already has a card. Turn off the filter to see them.";
+        why = "Every student already has a card. Turn off the filter to replace a lost one.";
     } else {
         why = "No students enrolled in this class yet.";
     }
@@ -1014,7 +1110,7 @@ static void build_enroll_search(void) {
     lv_obj_set_flex_align(trow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(trow, 10, 0);
-    lv_obj_t* tlabel = ui_make_label(trow, "Only students without a card", THEME_TEXT,
+    lv_obj_t* tlabel = ui_make_label(trow, "Hide students who already have a card", THEME_TEXT,
                                      &lv_font_montserrat_14);
     lv_obj_set_flex_grow(tlabel, 1);
     lv_label_set_long_mode(tlabel, LV_LABEL_LONG_WRAP);
@@ -1168,15 +1264,23 @@ static void build_enroll_wait(void) {
     lv_obj_set_style_pad_row(card, 12, 0);
     lv_obj_set_style_pad_ver(card, 20, 0);
 
+    bool replacing = false;
+    if (!s_sel_is_new) {
+        const student_t* st = roster_student_at(s_sel_idx);
+        replacing = st && st->rfid_uid[0];
+    }
+
     ui_make_label(card, LV_SYMBOL_SD_CARD, THEME_ACCENT, &lv_font_montserrat_32);
-    ui_make_label(card, "Tap the student's card", THEME_PRIMARY, &lv_font_montserrat_20);
+    ui_make_label(card, replacing ? "Tap the new card to replace" : "Tap the student's card",
+                  THEME_PRIMARY, &lv_font_montserrat_20);
     char who[80];
     snprintf(who, sizeof(who), "%s  (%s)", name, id);
     lv_obj_t* whol = ui_make_label(card, who, THEME_TEXT, &lv_font_montserrat_14);
     ui_label_fit(whol);
     lv_obj_set_style_text_align(whol, LV_TEXT_ALIGN_CENTER, 0);  // card centers its children
-    ui_make_label(card, "Hold the RFID card near the reader", THEME_MUTED,
-                  &lv_font_montserrat_14);
+    ui_make_label(card,
+                  replacing ? "The old card will stop working" : "Hold the RFID card near the reader",
+                  THEME_MUTED, &lv_font_montserrat_14);
 
     lv_obj_t* cancel = ui_make_button(card, "Cancel", &theme_style_btn_outline,
                                       wait_cancel_cb, nullptr);
@@ -1292,6 +1396,10 @@ static void forget_view_widgets(void) {
     s_roll_list = nullptr;
     s_roll_count = nullptr;
     s_roll_bar = nullptr;
+    s_roll_pager = nullptr;
+    s_roll_page_label = nullptr;
+    s_roll_prev = nullptr;
+    s_roll_next = nullptr;
     s_chip_count = 0;  // the chips go with s_roll_list
     s_search_ta = nullptr;
     s_results = nullptr;
@@ -1428,7 +1536,10 @@ void scr_class_request_session_view(void) { s_pending_session_view = true; }
 void scr_class_request_enroll_view(void) { s_pending_enroll_view = true; }
 
 static void on_show(void* arg) {
-    if (arg) s_cls = (const class_rec_t*)arg;
+    if (arg) {
+        if (s_cls != (const class_rec_t*)arg) s_roll_page = 0;
+        s_cls = (const class_rec_t*)arg;
+    }
     // Attendance only: s_cls points into roster storage, which a reload rewrites.
     ui_sd_resync_light();
     // Returning from kiosk drops back into the running session, and from the

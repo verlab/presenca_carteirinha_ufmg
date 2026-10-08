@@ -21,7 +21,7 @@ native-only).
 
 ## Suites
 
-20 suites, 287 cases. This table is the only place those numbers are recorded —
+20 suites, 290 cases. This table is the only place those numbers are recorded —
 other docs link here rather than restating them.
 
 | Suite | Cases | Covers |
@@ -34,7 +34,7 @@ other docs link here rather than restating them.
 | `native/test_atomic_file` | 12 | crash-safe file replacement: recovery from an interrupted write, full-card failure leaves the original |
 | `native/test_crypto` | 19 | SHA-256 / HMAC-SHA256 against FIPS 180-2 + RFC 4231 vectors; keyed UID and password fingerprints |
 | `native/test_core` | 14 | `uid_normalize`, login session, battery voltage→percent curve, charging threshold |
-| `native/test_device_prefs` | 15 | Admin brightness / beep volume: clamp, JSON, `/settings.json` load/save |
+| `native/test_device_prefs` | 18 | Admin brightness / beep volume / no-RTC: clamp, JSON, `/settings.json` load/save |
 | `native/test_photo_fit` | 11 | aspect-preserving avatar scale/size arithmetic |
 | `native/test_card_gate` | 16 | RFID tap decisions: confirm-before-accept, multi-card detection |
 | `native/test_class_stats` | 9 | turma breakdown shared by the class and stats screens |

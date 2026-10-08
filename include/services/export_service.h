@@ -58,5 +58,6 @@ bool export_exists(const class_rec_t* cls);
 export_result_t export_write_csv(const class_rec_t* cls, progress_cb_t cb, void* ctx);
 
 // Fills freq[] with how many recorded session days each student enrolled in
-// class (cls) was absent.
-bool export_compute_freq(const class_rec_t* cls, int* freq);
+// class (cls) was absent. Optional `cb` reports one item per session date.
+bool export_compute_freq(const class_rec_t* cls, int* freq, progress_cb_t cb = nullptr,
+                         void* ctx = nullptr);

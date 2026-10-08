@@ -24,10 +24,11 @@ static void assert_file(const char* expected) {
 // ---- clamp / defaults ------------------------------------------------------
 
 static void test_defaults(void) {
-    device_prefs_t p = {0, 0};
+    device_prefs_t p = {0, 0, false};
     device_prefs_defaults(&p);
     TEST_ASSERT_EQUAL_UINT8(100, p.brightness);
     TEST_ASSERT_EQUAL_UINT8(90, p.beep_volume);
+    TEST_ASSERT_FALSE(p.no_rtc);
 }
 
 static void test_brightness_floor_keeps_the_panel_visible(void) {
@@ -70,6 +71,7 @@ static void test_parse_missing_keys_keep_defaults(void) {
     TEST_ASSERT_TRUE(device_prefs_parse("{}", 2, &p));
     TEST_ASSERT_EQUAL_UINT8(100, p.brightness);
     TEST_ASSERT_EQUAL_UINT8(90, p.beep_volume);
+    TEST_ASSERT_FALSE(p.no_rtc);
 }
 
 static void test_parse_clamps_out_of_range(void) {
@@ -88,16 +90,41 @@ static void test_parse_rejects_garbage(void) {
 }
 
 static void test_format_roundtrip(void) {
-    device_prefs_t in = {35, 12};
-    char buf[64];
+    device_prefs_t in = {35, 12, true};
+    char buf[80];
     size_t n = device_prefs_format(&in, buf, sizeof(buf));
-    TEST_ASSERT_EQUAL_STRING("{\"brightness\":35,\"beep_volume\":12}", buf);
+    TEST_ASSERT_EQUAL_STRING("{\"brightness\":35,\"beep_volume\":12,\"no_rtc\":true}", buf);
     TEST_ASSERT_EQUAL(strlen(buf), n);
 
     device_prefs_t out;
     TEST_ASSERT_TRUE(device_prefs_parse(buf, n, &out));
     TEST_ASSERT_EQUAL_UINT8(35, out.brightness);
     TEST_ASSERT_EQUAL_UINT8(12, out.beep_volume);
+    TEST_ASSERT_TRUE(out.no_rtc);
+}
+
+static void test_parse_no_rtc(void) {
+    device_prefs_t p;
+    TEST_ASSERT_TRUE(device_prefs_parse("{\"no_rtc\":true}", strlen("{\"no_rtc\":true}"), &p));
+    TEST_ASSERT_TRUE(p.no_rtc);
+    TEST_ASSERT_TRUE(device_prefs_parse("{\"no_rtc\":false}", strlen("{\"no_rtc\":false}"), &p));
+    TEST_ASSERT_FALSE(p.no_rtc);
+}
+
+static void test_timed_threshold_zero_without_clock(void) {
+    TEST_ASSERT_EQUAL_INT(0, device_prefs_timed_threshold(45, false));
+    TEST_ASSERT_EQUAL_INT(45, device_prefs_timed_threshold(45, true));
+    TEST_ASSERT_EQUAL_INT(0, device_prefs_timed_threshold(-3, true));
+}
+
+static void test_use_timed_clock(void) {
+    device_prefs_t p;
+    device_prefs_defaults(&p);
+    TEST_ASSERT_TRUE(device_prefs_use_timed_clock(&p, true, true));
+    TEST_ASSERT_FALSE(device_prefs_use_timed_clock(&p, false, true));
+    TEST_ASSERT_FALSE(device_prefs_use_timed_clock(&p, true, false));
+    p.no_rtc = true;
+    TEST_ASSERT_FALSE(device_prefs_use_timed_clock(&p, true, true));
 }
 
 // ---- store -----------------------------------------------------------------
@@ -115,14 +142,15 @@ static void test_load_missing_file_returns_defaults(void) {
 }
 
 static void test_save_then_load(void) {
-    device_prefs_t in = {40, 15};
+    device_prefs_t in = {40, 15, true};
     TEST_ASSERT_TRUE(device_prefs_store_save(&in));
-    assert_file("{\"brightness\":40,\"beep_volume\":15}");
+    assert_file("{\"brightness\":40,\"beep_volume\":15,\"no_rtc\":true}");
 
     device_prefs_t out;
     TEST_ASSERT_TRUE(device_prefs_store_load(&out));
     TEST_ASSERT_EQUAL_UINT8(40, out.brightness);
     TEST_ASSERT_EQUAL_UINT8(15, out.beep_volume);
+    TEST_ASSERT_TRUE(out.no_rtc);
 }
 
 static void test_load_clamps_a_hand_edited_file(void) {
@@ -155,6 +183,9 @@ int main(int, char**) {
     RUN_TEST(test_parse_clamps_out_of_range);
     RUN_TEST(test_parse_rejects_garbage);
     RUN_TEST(test_format_roundtrip);
+    RUN_TEST(test_parse_no_rtc);
+    RUN_TEST(test_timed_threshold_zero_without_clock);
+    RUN_TEST(test_use_timed_clock);
     RUN_TEST(test_path_is_at_the_card_root);
     RUN_TEST(test_load_missing_file_returns_defaults);
     RUN_TEST(test_save_then_load);

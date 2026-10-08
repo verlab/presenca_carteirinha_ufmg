@@ -146,27 +146,28 @@ config-builder authors one mode at a time.
 
 ### Roll call
 
-Rendered alphabetically, filtered by a search box, and capped at `ROLL_MAX_ROWS`
-chips with a "Showing N of M" header — a chip costs ~5 LVGL objects and a large
-class would otherwise exhaust the pool.
+Rendered alphabetically, filtered by a search box, and paged at `ROLL_MAX_ROWS`
+chips (pinned ← / "N-M of T" / →). A chip costs ~5 LVGL objects; drawing a
+full 250-student class at once would exhaust the pool.
 
 **Layout: pinned strip + one inner scroller**, the same shape as the enroll
 search. `s_content` fills the body (overriding `rebuild_content()`'s
-`LV_SIZE_CONTENT`), the date/count/progress card and the search box stay fixed,
-and `s_roll_scroll` is the view's only scroller — holding the Kiosk/Enroll row,
-the banner, the session extras (photo count, turmas, **Close session**) and then
-the chips, so all of that scrolls away instead of costing pinned height. Two
-reasons it is not one scrolling body: LVGL claims a press for scrolling whenever
-an ancestor *has overflow* (`lv_indev_scroll.c`), and a full-body scroller always
-does — so taps were being eaten even on a short filtered list; and the body
-repaints per frame, which meant scrolling redrew the summary card and its shadow
-along with the list. Anything added above the chips should go inside the
-scroller unless it must stay readable mid-list.
+`LV_SIZE_CONTENT`), the date/count/progress card, the search box and the page
+arrows stay fixed, and `s_roll_scroll` is the view's only scroller — holding the
+Kiosk/Enroll row, the banner, the session extras (photo count, turmas, **Close
+session**) and then the chips, so all of that scrolls away instead of costing
+pinned height. Two reasons it is not one scrolling body: LVGL claims a press for
+scrolling whenever an ancestor *has overflow* (`lv_indev_scroll.c`), and a
+full-body scroller always does — so taps were being eaten even on a short
+filtered list; and the body repaints per frame, which meant scrolling redrew the
+summary card and its shadow along with the list. Anything added above the chips
+should go inside the scroller unless it must stay readable mid-list.
 
 **A presence change never rebuilds the list.** `refresh_roll_chip()` restyles the
 one chip (`s_chips` remembers those drawn) and the summary; only a search change
-rebuilds the container via `update_roll_call()`. This is correctness, not just
-speed: rebuilding from a chip's own click handler deleted the object mid-dispatch,
+or a page-arrow rebuilds the container via `update_roll_call()`. This is
+correctness, not just speed: rebuilding from a chip's own click handler deleted
+the object mid-dispatch,
 which cost the click its remaining event callbacks (so the tap was silent), reset
 the input device mid-gesture, and let LVGL's `lv_obj_readjust_scroll()` clamp the
 body — the "tap did nothing" and "list jumped to the bottom" reports. Presence

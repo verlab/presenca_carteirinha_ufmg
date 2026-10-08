@@ -83,45 +83,18 @@ export_result_t export_write_csv(const class_rec_t* cls, progress_cb_t cb, void*
     }
     export_path_for(cls, r.path, sizeof(r.path));
 
-    char(*dates)[12] = (char(*)[12])malloc(MAX_DAYS * 12);
-    if (!dates) {
-        r.path[0] = '\0';
-        snprintf(r.message, sizeof(r.message), "Out of memory");
-        return r;
-    }
-    int days = attendance_list_dates(cls->dir, dates, MAX_DAYS);
-
-    // FREQ = absent days per student. Fold every date once (dates outer,
-    // students inner), counting a student absent whenever they aren't present.
+    // FREQ = absent days per student. Folded once in export_compute_freq
+    // (dates outer, students inner). The same walk used to run again here,
+    // which doubled every absence in the CSV.
     int total = cls->roster_count;
 
     int* freq = (int*)calloc(total > 0 ? total : 1, sizeof(int));
-    if (!freq || !export_compute_freq(cls, freq)) {
+    if (!freq || !export_compute_freq(cls, freq, cb, ctx)) {
         free(freq);
         r.path[0] = '\0';
         snprintf(r.message, sizeof(r.message), "Out of memory");
         return r;
     }
-
-    SessionSnapshot saved = snapshot_session();
-    for (int d = 0; d < days; d++) {
-        // The clock only matters for resuming timed arrivals, which these
-        // historical folds discard again on the next open; the real time keeps
-        // the credit right if the exported date IS the open session's.
-        attendance_open(cls->dir, dates[d], esp_timer_get_time());
-        for (int j = 0; j < total; j++) {
-            const student_t* st = roster_student_at(cls->roster[j]);
-            if (st && !attendance_is_present(st->id)) freq[j]++;
-        }
-        // Each iteration re-reads a whole session file, so this is where the
-        // time goes and where the UI needs to see movement.
-        if (cb) {
-            progress_t p = {"Reading sessions", dates[d], d + 1, days};
-            cb(&p, ctx);
-        }
-    }
-    restore_session(saved);
-    free(dates);
 
     // Build the CSV in a heap buffer (one write), then persist it.
     size_t cap = 32 + (size_t)(total + 1) * 40;
@@ -165,7 +138,7 @@ export_result_t export_write_csv(const class_rec_t* cls, progress_cb_t cb, void*
 }
 
 // fill the freq[] with the absences
-bool export_compute_freq(const class_rec_t* cls, int* freq) {
+bool export_compute_freq(const class_rec_t* cls, int* freq, progress_cb_t cb, void* ctx) {
     if (!cls || !freq) return false;
     char(*dates)[12] = (char(*)[12])malloc(MAX_DAYS * 12);
     if (!dates) return false;
@@ -173,10 +146,17 @@ bool export_compute_freq(const class_rec_t* cls, int* freq) {
     for (int j = 0; j < cls->roster_count; j++) freq[j] = 0;
     SessionSnapshot saved = snapshot_session();
     for (int d = 0; d < days; d++) {
+        // The clock only matters for resuming timed arrivals, which these
+        // historical folds discard again on the next open; the real time keeps
+        // the credit right if the exported date IS the open session's.
         attendance_open(cls->dir, dates[d], esp_timer_get_time());
         for (int j = 0; j < cls->roster_count; j++) {
             const student_t* st = roster_student_at(cls->roster[j]);
             if (st && !attendance_is_present(st->id)) freq[j]++;
+        }
+        if (cb) {
+            progress_t p = {"Reading sessions", dates[d], d + 1, days};
+            cb(&p, ctx);
         }
     }
     restore_session(saved);

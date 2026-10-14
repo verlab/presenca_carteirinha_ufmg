@@ -185,7 +185,7 @@ static void export_cb(lv_event_t*) {
     }
 }
 
-// report site
+// --- qr code (for report site) -----------------------------------------------------------------
 
 static void close_qr_modal(void) {
     if (s_qr_modal) {

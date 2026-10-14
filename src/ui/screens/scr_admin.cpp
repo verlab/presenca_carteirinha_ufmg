@@ -81,7 +81,9 @@ static void build_rfid(void);
 static void build_storage(void);
 static void build_import(void);
 static void build_rtc(void);
+static void prefs_save(void);
 static void fill_profile(void);
+static device_prefs_t s_prefs;
 static void import_btn_cb(lv_event_t*);
 static void revert_btn_cb(lv_event_t*);
 
@@ -423,6 +425,12 @@ static void open_rtc_modal(void) {
 
 static void change_rtc_cb(lv_event_t*) { open_rtc_modal(); }
 
+static void no_rtc_cb(lv_event_t* e) {
+    lv_obj_t* sw = (lv_obj_t*)lv_event_get_target(e);
+    s_prefs.no_rtc = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    prefs_save();
+}
+
 static void build_rtc(void) {
     ESP_LOGI(TAG, "build_rtc: rtc_is_set=%d", set_rtc());
     lv_obj_clean(s_rtc);
@@ -437,10 +445,36 @@ static void build_rtc(void) {
         snprintf(line, sizeof(line), "%04d-%02d-%02d  %02d:%02d", now.year, now.month, now.day,
                  now.hour, now.minute);
         ui_make_label(card, line, THEME_SUCCESS, &lv_font_montserrat_14);
+    } else if (rtc_hardware_present()) {
+        ui_make_label(card, "Clock present, time not set.", THEME_WARNING,
+                      &lv_font_montserrat_14);
     } else {
-        ui_make_label(card, "Not set.",
-                      THEME_DANGER, &lv_font_montserrat_14);
+        ui_make_label(card, "No RTC chip on this device.", THEME_DANGER,
+                      &lv_font_montserrat_14);
     }
+
+    device_prefs_store_load(&s_prefs);
+    lv_obj_t* trow = lv_obj_create(card);
+    lv_obj_remove_style_all(trow);
+    lv_obj_set_size(trow, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(trow, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(trow, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_t* tlabel = ui_make_label(trow, "No RTC (2nd tap confirms)", THEME_TEXT,
+                                     &lv_font_montserrat_14);
+    lv_obj_set_flex_grow(tlabel, 1);
+    lv_label_set_long_mode(tlabel, LV_LABEL_LONG_WRAP);
+    lv_obj_t* sw = lv_switch_create(trow);
+    if (s_prefs.no_rtc) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, no_rtc_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    lv_obj_t* hint = ui_make_label(
+        card,
+        s_prefs.no_rtc ? "Timed classes confirm on the second tap. No minute wait."
+                       : "Timed classes wait the class minutes between taps.",
+        THEME_MUTED, &lv_font_montserrat_14);
+    lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(hint, LV_PCT(100));
 
     lv_obj_t* btn = ui_make_button(card, set_rtc() ? "Adjust RTC" : "Set RTC",
                                    &theme_style_btn_primary, change_rtc_cb, nullptr);
@@ -457,8 +491,6 @@ static void rtc_timer_cb(lv_timer_t*) {
 static void camera_preview_cb(lv_event_t*) { scr_mgr_show(SCREEN_CAMERA, nullptr); }
 static void about_cb(lv_event_t*) { scr_mgr_show(SCREEN_ABOUT, nullptr); }
 static void charging_cb(lv_event_t*) { scr_mgr_show(SCREEN_CHARGING, nullptr); }
-
-static device_prefs_t s_prefs;
 
 static void prefs_save(void) {
     if (!device_prefs_store_save(&s_prefs)) {

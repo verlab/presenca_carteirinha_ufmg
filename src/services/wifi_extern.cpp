@@ -11,7 +11,7 @@ static constexpr const char* WIFI_PASS= "pass";
 static constexpr uint32_t WIFI_RETRY_PERIOD_MS = 10000;
 static TaskHandle_t s_retry_task = nullptr;
 
-// salvar infos do wifi para o prox uso
+// saves the wifi info so it can be restored 
 static bool save_credentials(const char* name, const char* password) {
     const char* ssid = name ? name : "";
     const char* pass = password ? password : "";
@@ -27,6 +27,7 @@ static bool save_credentials(const char* name, const char* password) {
     return saved;
 }
 
+// reads the saved ssid/password into the buffers
 bool wifi_get_saved_credentials(char* name, size_t name_cap, char* password,
                                 size_t password_cap) {
     if (name && name_cap) name[0] = '\0';
@@ -46,6 +47,7 @@ bool wifi_get_saved_credentials(char* name, size_t name_cap, char* password,
     return ssid.length() > 0;
 }
 
+// reconnects to the saved network if any 
 void wifi_restore(void) {
     char ssid[33];
     char password[64];
@@ -57,6 +59,7 @@ void wifi_restore(void) {
     wifi_connect(ssid, password);
 }
 
+// saves the network, stops the ap and starts connecting
 void wifi_connect(const char* name, const char* password){
     if (!name || !name[0]) return;
     if (!save_credentials(name, password)) {
@@ -74,15 +77,18 @@ void wifi_connect(const char* name, const char* password){
     ESP_LOGI(TAG, "connecting to %s", name);
 }
 
+// drops the current connection 
 void wifi_disconnect(void){
     WiFi.disconnect(false);
     ESP_LOGI(TAG, "disconnected");
 }
 
+// true if the device is connected to a wifi network
 bool wifi_is_connected(void){
     return WiFi.status() == WL_CONNECTED;
 }
 
+// Writes the ip, or "" if not connected 
 void wifi_ip(char* out,  size_t cap){
     if(!cap) return;
     if(!wifi_is_connected()){

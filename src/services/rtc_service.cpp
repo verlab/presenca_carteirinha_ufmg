@@ -2,8 +2,10 @@
 #include <RTClib.h>
 #include <Wire.h>
 #include <stdio.h>
+#include "app/device_prefs.h"
 #include "esp32-hal-log.h"
 #include "esp_timer.h"
+#include "storage/device_prefs_store.h"
 
 static const char* TAG = "rtc";
 static RTC_DS1307 s_rtc;
@@ -51,6 +53,8 @@ bool rtc_service_init(void) {
              now.day(), now.hour(), now.minute(), now.second());
     return true;
 }
+
+bool rtc_hardware_present(void) { return s_present; }
 
 bool set_rtc(void) {
     return s_present && s_configured;
@@ -111,4 +115,10 @@ uint32_t rtc_timestamp(void) {
     if (!set_rtc()) return 0;
     DateTime utc = rtc_cached_now() + TimeSpan(0, 3, 0, 0); // para o horario de brasília, que é utc-3 (no firebase eh utc-0)
     return utc.unixtime();
+}
+int rtc_timed_threshold(int class_min) {
+    device_prefs_t p;
+    device_prefs_store_load(&p);
+    bool use = device_prefs_use_timed_clock(&p, rtc_hardware_present(), set_rtc());
+    return device_prefs_timed_threshold(class_min, use);
 }

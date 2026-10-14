@@ -8,6 +8,7 @@
 #include "audio/beeper.h"
 #include "lcd/backlight.h"
 #include "lcd/st7701_lcd.h"
+#include "app/device_prefs.h"
 #include "storage/device_prefs_store.h"
 #include "lvgl_port.h"
 #include "services/battery_service.h"
@@ -103,6 +104,10 @@ void setup() {
     // the card is mounted so a missing file just keeps the hardware defaults.
     device_prefs_t prefs;
     device_prefs_store_load(&prefs);
+    if (!rtc_hardware_present() && !prefs.no_rtc) {
+        prefs.no_rtc = true;
+        device_prefs_store_save(&prefs);
+    }
     lcd_set_brightness(prefs.brightness);
     beeper_set_volume(prefs.beep_volume);
 

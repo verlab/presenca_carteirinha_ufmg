@@ -17,6 +17,10 @@ typedef struct {
 // Returns true on success or if clock is present; false if hardware fails to respond.
 bool rtc_service_init(void);
 
+// True when a DS1307 answered on Wire1. Distinct from set_rtc(): a board can
+// have the chip and still have no valid time, or have no chip at all.
+bool rtc_hardware_present(void);
+
 // Returns true if the RTC module was detected and successfully configured with valid time.
 bool set_rtc(void);
 
@@ -34,3 +38,7 @@ bool rtc_adjust(int year, int month, int day, int hour, int minute, int second);
 int rtc_weekday(void);
 
 uint32_t rtc_timestamp(void);
+// Minutes to wait between timed arrival and confirm. 0 when this board has
+// no usable clock (missing chip, unset time, or Admin "No RTC"), so the
+// second tap registers presence instead of showing "Too soon".
+int rtc_timed_threshold(int class_min);

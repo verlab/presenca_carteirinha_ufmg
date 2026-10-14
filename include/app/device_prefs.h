@@ -22,6 +22,10 @@ constexpr uint8_t DEVICE_PREFS_BEEP_DAC_MAX = 0xBF;
 typedef struct {
     uint8_t brightness;   // 10-100
     uint8_t beep_volume;  // 0-100
+    // This board has no usable RTC. Timed (double-tap) check-in then confirms
+    // on the second tap instead of waiting min_attendance_min. Auto-detected
+    // when the chip is missing; overridable in Admin.
+    bool no_rtc;
 } device_prefs_t;
 
 void device_prefs_defaults(device_prefs_t* out);
@@ -41,3 +45,12 @@ bool device_prefs_parse(const char* json, size_t len, device_prefs_t* out);
 // Compact object, no extra whitespace. Returns bytes written (not counting
 // the NUL). 0 if `out` is too small.
 size_t device_prefs_format(const device_prefs_t* p, char* out, size_t cap);
+
+// Minutes a timed class should wait between arrival and confirm. 0 when the
+// device has no clock (`no_rtc`, or no configured RTC): the second tap
+// registers presence immediately. `class_min` is class.json's threshold.
+int device_prefs_timed_threshold(int class_min, bool use_clock);
+
+// True when timed mode should use the class minute threshold (wall / monotonic
+// wait). False when this board must treat the second tap as the confirm.
+bool device_prefs_use_timed_clock(const device_prefs_t* p, bool rtc_hw, bool rtc_set);

@@ -6,10 +6,12 @@
 #include "services/wifi_extern.h"
 #include "services/rtc_service.h"
 
+// firebase realtime database host and secret (from the firebase console)
 static constexpr const char* HOST = "sistema-presenca-ufmg-default-rtdb.firebaseio.com";
 static constexpr const char* SECRET = "zoxmy29AQMUaLFV01ygPVlmjmeWruHX3hXC9bzki";
 
-// faz o put para o firebase com um json do relatorio de freq
+// uploads the class report (name, id, FREQ per student, 25% absence limit and
+// an expiry time) to /reports/<code>.json, replacing the previous one
 bool report_upload(const class_rec_t* cls){
     if(!cls || !wifi_is_connected()) return false;
 

@@ -32,3 +32,5 @@ bool rtc_adjust(int year, int month, int day, int hour, int minute, int second);
 
 // Returns the day of the week index (0 = Sunday, 6 = Saturday) or -1 if RTC is unconfigured.
 int rtc_weekday(void);
+
+uint32_t rtc_timestamp(void);

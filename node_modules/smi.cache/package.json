@@ -1,0 +1,19 @@
+{
+  "name": "smi.cache",
+  "version": "0.3.1",
+  "pm": "npm",
+  "publish": true,
+  "main": "./lib/cache.js",
+  "dependencies": {
+    "fs-extra": "~0.8.1",
+    "q": "^1.0.1",
+    "tunnel": "~0.0.3",
+    "moment": "^2.5.1",
+    "deepcopy": "~0.3.3"
+  },
+  "config": {
+    "pio.deploy.converter": {
+      "name": "nodejs-lib"
+    }
+  }
+}

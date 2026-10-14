@@ -106,3 +106,9 @@ int rtc_weekday(void) {
     if (!set_rtc()) return -1;
     return rtc_cached_now().dayOfTheWeek();
 }
+
+uint32_t rtc_timestamp(void) {
+    if (!set_rtc()) return 0;
+    DateTime utc = rtc_cached_now() + TimeSpan(0, 3, 0, 0); // para o horario de brasília, que é utc-3 (no firebase eh utc-0)
+    return utc.unixtime();
+}

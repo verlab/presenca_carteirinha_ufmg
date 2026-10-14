@@ -87,6 +87,13 @@ static lv_obj_t* s_roll_list = nullptr;    // holds only the chips; rebuilt alon
 static lv_obj_t* s_roll_count = nullptr;   // "N/M present" in the summary header
 static lv_obj_t* s_roll_bar = nullptr;     // present-progress bar
 
+static lv_obj_t* s_roll_pager = nullptr;  
+static lv_obj_t* s_roll_page_label = nullptr;
+static lv_obj_t* s_roll_prev = nullptr; 
+static lv_obj_t* s_roll_next = nullptr; 
+static int s_roll_page_count = 0;  
+int s_roll_page = 0;  
+
 // The chips currently drawn, so a presence change can restyle ONE of them
 // instead of rebuilding the container. Rebuilding from the chip's own click
 // handler deleted the object mid-dispatch, which cost the click its remaining
@@ -127,6 +134,28 @@ static void build_hub(void);
 static void go_view(view_id_t v);
 static void kiosk_cb(lv_event_t*);
 static void enroll_btn_cb(lv_event_t*);
+static void update_roll_page(int page_count); // pagination
+static void roll_prev_cb(lv_event_t*);
+static void roll_next_cb(lv_event_t*);
+
+
+// reset da pag 
+static void roll_search(lv_event_t*){
+    s_roll_page = 0;
+    update_roll_call();
+}
+
+static void roll_prev_cb(lv_event_t*){
+    if(s_roll_page <= 0) return;
+    s_roll_page--;
+    update_roll_call();
+}
+
+static void roll_next_cb(lv_event_t*){
+    if(s_roll_page >= s_roll_page_count - 1) return;
+    s_roll_page++;
+    update_roll_call();
+}
 
 // Back steps up the view stack: enroll -> session, session/history -> hub, and
 // from the hub out to the classes list.
@@ -393,6 +422,8 @@ static void build_session_open(void) {
     int total = s_cls->roster_count;
     int present = attendance_present_count();
 
+    s_roll_page = 0;
+
     // Shaped like the enroll search (build_enroll_search): s_content fills the
     // body, a compact strip stays pinned at the top and ONLY the list scrolls.
     // Two reasons, both measured. LVGL claims a press for scrolling merely
@@ -526,6 +557,21 @@ static void build_session_open(void) {
                                      close_session_cb, nullptr);
     lv_obj_set_width(close, LV_PCT(100));
 
+    s_roll_pager = lv_obj_create(s_roll_scroll);
+    lv_obj_remove_style_all(s_roll_pager);
+    lv_obj_set_size(s_roll_pager, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(s_roll_pager, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_roll_pager, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_roll_pager, 10, 0);
+    lv_obj_remove_flag(s_roll_pager, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_roll_prev = ui_make_button(s_roll_pager, LV_SYMBOL_LEFT " Previous", &theme_style_btn_outline, roll_prev_cb, nullptr);
+    lv_obj_set_flex_grow(s_roll_prev, 1);
+    s_roll_page_label = ui_make_label(s_roll_pager, "", THEME_MUTED, &lv_font_montserrat_14);
+    s_roll_next = ui_make_button(s_roll_pager, "Next " LV_SYMBOL_RIGHT, &theme_style_btn_outline, roll_next_cb, nullptr);
+    lv_obj_set_flex_grow(s_roll_next, 1);
+
+
     // Chips live in their own container inside the scroller, so a search can
     // rebuild the list alone and leave the cards above it (and the keyboard's
     // textarea) untouched.
@@ -648,15 +694,34 @@ static void update_roll_call(void) {
     for (int j = 0; j < total; j++) order[j] = s_cls->roster[j];
     qsort(order, total, sizeof(order[0]), roster_name_cmp);
 
-    int matched = 0;  // all matches
-    int shown = 0;    // chips actually built
+    int matched = 0;
+    for (int j = 0; j < total; j++) {
+        const student_t* st = roster_student_at(order[j]);
+        if (!st) continue;
+       if (q[0] && !ui_text_contains(st->name, q) && !ui_text_contains(st->id, q)) continue;
+        matched++;
+   }
+
+    const int page_count = (matched + ROLL_MAX_ROWS - 1) / ROLL_MAX_ROWS;
+    if (page_count > 0 && s_roll_page >= page_count) s_roll_page = page_count - 1;
+    update_roll_page(page_count);
+
+    const int first_match = s_roll_page * ROLL_MAX_ROWS;
+    const int last_match = first_match + ROLL_MAX_ROWS;
+    int match_index = 0;
+    int shown = 0;
+
     for (int j = 0; j < total; j++) {
         int idx = order[j];
         const student_t* st = roster_student_at(idx);
         if (!st) continue;
         if (q[0] && !ui_text_contains(st->name, q) && !ui_text_contains(st->id, q)) continue;
-        matched++;
-        if (shown >= ROLL_MAX_ROWS) continue;  // counted, not drawn
+        if (match_index < first_match || match_index >= last_match) {
+            match_index++;
+            continue;
+        }
+        match_index++;
+
         shown++;
 
         lv_obj_t* chip = ui_make_card(s_roll_list);
@@ -711,22 +776,44 @@ static void update_roll_call(void) {
     // Say plainly when the list is cut short — a student missing from the roll
     // call would otherwise look like they are not enrolled. Built last (that is
     // where the counts are known) and moved above the chips.
-    bool truncated = matched > shown;
-    if (!truncated && !q[0]) return;  // full list, no query: the summary says it all
+
+    if (matched <= ROLL_MAX_ROWS && !q[0]) return;
     char head[96];
-    if (truncated) {
-        snprintf(head, sizeof(head), "Showing %d of %d - search to narrow the list", shown,
-                 matched);
+     if (matched > ROLL_MAX_ROWS) {
+       snprintf(head, sizeof(head), "Showing %d-%d of %d", first_match + 1,
+                 first_match + shown, matched);
     } else {
         snprintf(head, sizeof(head), "%d match%s", matched, matched == 1 ? "" : "es");
     }
-    lv_obj_t* count = ui_make_label(s_roll_list, head, truncated ? THEME_WARNING : THEME_MUTED,
+    
+    lv_obj_t* count = ui_make_label(s_roll_list, head, (matched > ROLL_MAX_ROWS)? THEME_WARNING : THEME_MUTED,
                                     &lv_font_montserrat_14);
     lv_label_set_long_mode(count, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(count, LV_PCT(100));
     lv_obj_move_to_index(count, 0);
 
     log_pool_peak(shown);
+}
+
+static void update_roll_page(int page_count){
+    if(!s_roll_pager) return;
+    s_roll_page_count = page_count;
+
+    if(page_count <= 1){
+        lv_obj_add_flag(s_roll_pager, LV_OBJ_FLAG_HIDDEN);
+        return;
+    } 
+
+    lv_obj_remove_flag(s_roll_pager, LV_OBJ_FLAG_HIDDEN);
+    
+    char page_text[32];
+    snprintf(page_text, sizeof(page_text), "Page %d of %d", s_roll_page + 1, page_count);
+    lv_label_set_text(s_roll_page_label, page_text);
+
+    if(s_roll_page == 0) lv_obj_add_state(s_roll_prev, LV_STATE_DISABLED);
+    else lv_obj_remove_state(s_roll_prev, LV_STATE_DISABLED);
+    if (s_roll_page == page_count - 1) lv_obj_add_state(s_roll_next, LV_STATE_DISABLED);
+    else lv_obj_remove_state(s_roll_next, LV_STATE_DISABLED);
 }
 
 static void cal_changed_cb(lv_event_t* e) {

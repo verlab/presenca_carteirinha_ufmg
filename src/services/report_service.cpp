@@ -4,6 +4,7 @@
 #include "services/export_service.h"
 #include "services/roster_service.h"
 #include "services/wifi_extern.h"
+#include "services/rtc_service.h"
 
 static constexpr const char* HOST = "sistema-presenca-ufmg-default-rtdb.firebaseio.com";
 static constexpr const char* SECRET = "zoxmy29AQMUaLFV01ygPVlmjmeWruHX3hXC9bzki";
@@ -19,6 +20,11 @@ bool report_upload(const class_rec_t* cls){
     JsonDocument doc;
     doc["class_name"] = cls->name;
     doc["limit"] = limit;
+
+    uint32_t now = rtc_timestamp();
+    if (now == 0) return false;
+
+    doc["expires_at"] = (uint64_t)(now + 15 * 60) * 1000; // expira dps de 15 min
 
     JsonArray array = doc["students"].to<JsonArray>();
     for(int i = 0; i < cls-> roster_count; i++){

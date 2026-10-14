@@ -1,17 +1,97 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title> RELATÓRIO </title></head>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> RELATÓRIO DE TURMA </title>
+
+    <style>
+        body {
+            font-family: Arial, Helvetica;
+            background-color: #E9EEF5;
+            color: #272766;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #title {
+        color: #0D1F4A;
+        margin-bottom: 24px;
+        font-size: 1.5rem;
+        text-align: center;
+        }
+       
+        .table-container {
+            width: 100%;
+            max-width: 800px;
+            overflow-x: auto;
+            background-color: #E9EEF5;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+        }
+        #tbl {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.96rem;
+            text-align: left;
+        }
+        #tbl thead tr {
+        background-color: #0D1F4A;
+        color: #ffffff;
+        }
+        #tbl th {
+        padding: 14px 18px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        }
+        #tbl td {
+        padding: 12px 18px;
+        border-bottom: 1px solid #E9EEF5;
+        }
+        #tbl tbody tr:nth-child(even),
+        #tbl tr:nth-child(even):not(:first-child) {
+        background-color: #f8fafc;
+        }
+        #tbl tr:hover:not(:first-child) {
+        background-color: #129CF3;
+        transition: background-color 0.15s ease-in-out;
+        }
+        #tbl tr:last-child td {
+        border-bottom: none;
+        }
+
+        #tbl th:nth-child(3),
+        #tbl td:nth-child(3) {
+        text-align: center;
+        }
+        
+    </style>
+</head>
 <body>
 <h2 id="title">Carregando...</h2>
-<table border="1" id="tbl"></table>
+
+<div class="table-container">
+    <table id="tbl"></table>
+</div>
+
 <script>
 const params = new URLSearchParams(location.search);
+
 const code = params.get('code');
+
 fetch(`https://sistema-presenca-ufmg-default-rtdb.firebaseio.com/reports/${code}.json`)
   .then(r => r.json())
   .then(data => {
+
+    if (!data || !data.expires_at || Date.now() >= data.expires_at) {
+    document.getElementById('title').textContent = 'Relatorio Expirado';
+    return;
+  }
     document.getElementById('title').textContent = data.class_name + ' - ' + code;
-    let html = '<tr><th> Nome </th><th> Matricula </th><th> Faltas / Limite </th></tr>';
+
+    let html = '<thead><tr><th> Nome </th><th> Matricula </th><th> Faltas / Limite </th></tr></thead><tbody>';
     (data.students || []).forEach(s => {
       html += `<tr><td>${s.name}</td><td>${s.id}</td><td>${s.freq}${data.limit ? '/' + data.limit : ''}</td></tr>`;
     });

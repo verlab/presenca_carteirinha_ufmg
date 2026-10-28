@@ -22,6 +22,23 @@
         font-size: 1.5rem;
         text-align: center;
         }
+
+        .button-download {
+            display: none;
+            padding: 10px 20px;
+            margin-bottom: 24px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #ffffff;
+            background-color: #0D1F4A;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .button-download:hover {
+            background-color: #129CF3;
+        }
        
         .table-container {
             width: 100%;
@@ -71,6 +88,7 @@
 </head>
 <body>
 <h2 id="title">Carregando...</h2>
+<button id="downloadButton" class="button-download" type="button">Baixar CSV</button>
 
 <div class="table-container">
     <table id="tbl"></table>
@@ -81,22 +99,60 @@ const params = new URLSearchParams(location.search);
 
 const code = params.get('code');
 
-fetch(`https://sistema-presenca-ufmg-default-rtdb.firebaseio.com/reports/${code}.json`)
-  .then(r => r.json())
-  .then(data => {
+if (!code) {
+  document.getElementById('title').textContent = 'Codigo do relatorio nao informado';
+} else {
+  fetch(`https://sistema-presenca-ufmg-default-rtdb.firebaseio.com/reports/${encodeURIComponent(code)}.json`)
+    .then(r => {
+      if (!r.ok) {
+        throw new Error(`Erro HTTP ${r.status}`);
+      }
+      return r.json();
+    })
+    .then(data => {
+      if (!data || !data.expires_at || Date.now() >= data.expires_at) {
+        document.getElementById('title').textContent = 'Relatorio Expirado';
+        return;
+      }
+      document.getElementById('title').textContent = data.class_name + ' - ' + code;
 
-    if (!data || !data.expires_at || Date.now() >= data.expires_at) {
-    document.getElementById('title').textContent = 'Relatorio Expirado';
-    return;
-  }
-    document.getElementById('title').textContent = data.class_name + ' - ' + code;
+      const downloadButton = document.getElementById('downloadButton');
+      downloadButton.style.display = 'inline-block';
 
-    let html = '<thead><tr><th> Nome </th><th> Matricula </th><th> Faltas / Limite </th></tr></thead><tbody>';
-    (data.students || []).forEach(s => {
-      html += `<tr><td>${s.name}</td><td>${s.id}</td><td>${s.freq}${data.limit ? '/' + data.limit : ''}</td></tr>`;
+      let html = '<thead><tr><th> Nome </th><th> Matricula </th><th> Faltas / Limite </th></tr></thead><tbody>';
+      (data.students || []).forEach(s => {
+        html += `<tr><td>${s.name}</td><td>${s.id}</td><td>${s.freq}${data.limit ? '/' + data.limit : ''}</td></tr>`;
+      });
+
+      document.getElementById('tbl').innerHTML = html;
+
+      downloadButton.onclick = () => {
+        let csv_rows = ["MATRICULA,FREQ"];
+
+        (data.students || []).forEach(s => {
+          let id = s.id || '';
+          let freq = s.freq !== undefined ? s.freq : 0;
+          csv_rows.push(`${id},${freq}`);
+        });
+
+        const csv_content = csv_rows.join('\n');
+        const blob = new Blob(["\uFEFF" + csv_content], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${code}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      };
+    })
+    .catch(error => {
+      console.error('Falha ao carregar o relatorio:', error);
+      document.getElementById('title').textContent = 'Nao foi possivel carregar o relatorio';
     });
-    document.getElementById('tbl').innerHTML = html;
-  });
+}
 </script>
 </body>
 </html>

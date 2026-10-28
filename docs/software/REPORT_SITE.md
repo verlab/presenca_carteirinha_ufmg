@@ -68,6 +68,7 @@ and the class's weekly session windows in `class.json`. A class without them has
 - A title: `<class name> - <class code>`.
 - A table with **Nome**, **Matricula** and **Faltas / Limite**. Faltas / Limite reads `freq/limit` when
   a limit exists, otherwise just `freq`.
+- A **Baixar CSV** button with each student's matricula and absence count.
 ## Using it
  
 ### Firebase setup

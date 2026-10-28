@@ -521,7 +521,7 @@ static void make_pref_slider(lv_obj_t* parent, const char* title, uint8_t value,
     set_pct_label(pct, value);
 
     lv_obj_t* slider = lv_slider_create(parent);
-    lv_obj_set_width(slider, LV_PCT(100));
+    lv_obj_set_width(slider, LV_PCT(90));
     lv_obj_set_height(slider, 22);
     lv_obj_set_ext_click_area(slider, 16);
     lv_slider_set_range(slider, min, max);

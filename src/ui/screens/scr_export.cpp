@@ -204,14 +204,14 @@ static void qr_button_cb(lv_event_t* e){
         return;
     }
 
-    if(!report_upload(cls)){
+    char token[33];
+    if(!report_upload(cls, token, sizeof(token))){
         ui_toast_show("Problem sending data", false);
         return;
     }
 
-    char url[96];
-    snprintf(url, sizeof(url), "https://sistema-presenca-ufmg.web.app/view.html?code=%s",
-             cls->code);
+    char url[128];
+    snprintf(url, sizeof(url), "https://sistema-presenca-ufmg.web.app/view.html?r=%s", token);
 
     lv_obj_t* card;
     s_qr_modal = ui_modal_create(s_root, 70, &card);

@@ -96,25 +96,19 @@
 
 <script>
 const params = new URLSearchParams(location.search);
+const token = new URLSearchParams(location.search).get('r');
 
-const code = params.get('code');
-
-if (!code) {
-  document.getElementById('title').textContent = 'Codigo do relatorio nao informado';
+if (!token) {
+  document.getElementById('title').textContent = 'Token do relatorio nao informado';
 } else {
-  fetch(`https://sistema-presenca-ufmg-default-rtdb.firebaseio.com/reports/${encodeURIComponent(code)}.json`)
-    .then(r => {
-      if (!r.ok) {
-        throw new Error(`Erro HTTP ${r.status}`);
-      }
-      return r.json();
-    })
+  fetch(`https://sistema-presenca-ufmg-default-rtdb.firebaseio.com/reports/${encodeURIComponent(token)}.json`)
+    .then(r => r.ok ? r.json() : null)
     .then(data => {
       if (!data || !data.expires_at || Date.now() >= data.expires_at) {
         document.getElementById('title').textContent = 'Relatorio Expirado';
         return;
       }
-      document.getElementById('title').textContent = data.class_name + ' - ' + code;
+      document.getElementById('title').textContent = data.class_name + ' - ' + data.class_code;
 
       const downloadButton = document.getElementById('downloadButton');
       downloadButton.style.display = 'inline-block';

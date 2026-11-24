@@ -56,26 +56,71 @@ static constexpr float DIVIDER_GAIN = (68.0f + 100.0f) / 100.0f;  // 1.68
 //
 // PER-BOARD. Another unit has its own resistors and its own eFuse calibration;
 // this number does not transfer.
-static constexpr float BAT_CAL_SCALE = 1.0518f;  // 3860 / 3670
-static constexpr int BAT_CAL_OFFSET_MV = 0;
+//
+// Measured on this unit during the initial bench check:
+//   true 3915 mV -> read 3700 mV  => scale ~= 1.058
+//   true 3808 mV -> read 3650 mV  => scale ~= 1.043
+// Recent no-load checks sit closer to ~1.043, so keep the calibration modest.
+// A small offset trims the remaining residual bias, while the moving-average +
+// spike filter absorbs the raw ADC noise that makes the UI jitter.
+static constexpr float BAT_CAL_SCALE = 1.050f;
+static constexpr int BAT_CAL_OFFSET_MV = 0;  // residual bias trim, mV
 
 static constexpr uint32_t SAMPLE_PERIOD_MS = 10000;
 static constexpr int OVERSAMPLE = 16;  // average out ADC noise (not the bias above)
+static constexpr int BAT_SPIKE_REJECT_MV = 120;  // ignore short jumps that are not a real battery move
+
+// retorna a mediana de 16 leituras 
+static uint32_t read_node_mv() {
+    uint32_t s[OVERSAMPLE];
+    for (int i = 0; i < OVERSAMPLE; i++) {
+        s[i] = analogReadMilliVolts(BAT_ADC_PIN);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    for (int i = 1; i < OVERSAMPLE; i++) {  
+        uint32_t v = s[i];
+        int j = i - 1;
+        while (j >= 0 && s[j] > v) {
+            s[j + 1] = s[j];
+            j--;
+        }
+        s[j + 1] = v;
+    }
+    return s[OVERSAMPLE / 2];
+}
 
 static void battery_task(void*) {
     analogReadResolution(12);
     // 12 dB attenuation covers the ~2.5 V the node reaches at a full 4.2 V cell.
     analogSetPinAttenuation(BAT_ADC_PIN, ADC_11db);
 
+    int32_t last_vbat_mv = 0;
+    int spike_run = 0;
+
     for (;;) {
         uint32_t acc = 0;
         for (int i = 0; i < OVERSAMPLE; i++) {
             acc += analogReadMilliVolts(BAT_ADC_PIN);  // eFuse-calibrated mV
         }
-        uint32_t node_mv = acc / OVERSAMPLE;
+        uint32_t node_mv = read_node_mv();
         float raw_mv = node_mv * DIVIDER_GAIN;
         int32_t vbat_mv = (int32_t)(raw_mv * BAT_CAL_SCALE + 0.5f) + BAT_CAL_OFFSET_MV;
         if (vbat_mv < 0) vbat_mv = 0;  // a negative offset must not wrap the uint16
+
+            if (last_vbat_mv != 0) {
+            int32_t delta = vbat_mv > last_vbat_mv ? (vbat_mv - last_vbat_mv) : (last_vbat_mv - vbat_mv);
+                if (delta > BAT_SPIKE_REJECT_MV && spike_run < 3) {
+                    spike_run++; 
+                    vbat_mv = last_vbat_mv;
+                } else if (delta > BAT_SPIKE_REJECT_MV) {
+                    spike_run = 0;  
+                } else {
+                    spike_run = 0;
+                    vbat_mv = (last_vbat_mv * 3 + vbat_mv) / 4;
+                }
+        }
+
+        last_vbat_mv = vbat_mv;
 
 #ifdef BATTERY_DRAIN_LOG
         // The calibration dataset: pair these with a multimeter on BAT+.

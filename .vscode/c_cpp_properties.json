@@ -725,9 +725,10 @@
                 ]
             },
             "defines": [
-                "APP_GIT_SHA=\"c974fbb\"",
+                "APP_GIT_SHA=\"5147633\"",
                 "PLATFORMIO=60118",
                 "BOARD_HAS_PSRAM",
+                "BATTERY_DRAIN_LOG",
                 "BOARD_HAS_PSRAM",
                 "LV_CONF_INCLUDE_SIMPLE",
                 "ARDUINO_USB_CDC_ON_BOOT=1",
